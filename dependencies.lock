@@ -1,0 +1,40 @@
+dependencies:
+  espressif/lua:
+    component_hash: f75e767cefb57380576a1f136ec60b18999687f5c4213e967344706feda35928
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 5.5.1
+  idf:
+    source:
+      type: idf
+    version: 5.5.6
+  m5stack/m5gfx:
+    component_hash: e97781f48f14c6c65b90ba7cfe27deb3ff7eae8ec61a60040ab3615d166c82f4
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 0.2.36
+  m5stack/m5unified:
+    component_hash: 4fd004b68526b3af3df4f3a4f20ae8698517d3a70951fc9b1903c95473d1608d
+    dependencies:
+    - name: m5stack/m5gfx
+      registry_url: https://components.espressif.com
+      require: private
+      version: '>=0.2.35'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.2.29
+direct_dependencies:
+- espressif/lua
+- idf
+- m5stack/m5unified
+manifest_hash: 7b5ebfaf5dc1fd705c83f363d621c135c83e76c69d8cfd1a8bdaebb35ee889fa
+target: esp32p4
+version: 2.0.0
