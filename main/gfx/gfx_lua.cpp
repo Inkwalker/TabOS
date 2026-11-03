@@ -1,4 +1,6 @@
-#include "gfx_lua.hpp"
+#include "lua/module_definition.hpp"
+
+#include "gfx.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -13,7 +15,7 @@ namespace {
 
 M5Canvas& canvas(lua_State* state)
 {
-    auto* target = active_canvas();
+    auto* target = gfx::active_canvas();
     if (!target) {
         luaL_error(state, "gfx has no active canvas");
     }
@@ -116,9 +118,7 @@ int swap_canvas(lua_State* state)
     return 0;
 }
 
-} // namespace
-
-void register_lua(lua_State* state)
+int push_gfx_table(lua_State* state)
 {
     const auto& target = canvas(state);
     const luaL_Reg functions[] = {
@@ -137,6 +137,14 @@ void register_lua(lua_State* state)
     lua_setfield(state, -2, "width");
     lua_pushinteger(state, target.height());
     lua_setfield(state, -2, "height");
-    lua_setglobal(state, "gfx");
+    return 1;
 }
-} 
+} // namespace
+
+lua_vm::Module lua_module()
+{
+    static const lua_vm::Module::Definition definition{"gfx", push_gfx_table};
+    return lua_vm::Module{definition};
+}
+
+} // namespace gfx

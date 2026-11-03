@@ -2,6 +2,10 @@
 
 #include "M5Unified.h"
 
+namespace lua_vm {
+class Module;
+}
+
 namespace gfx {
 
 constexpr int screen_width = 1280;
@@ -14,6 +18,8 @@ constexpr int canvas_height = screen_height / scale;
 
 // Call after M5.begin().
 bool init();
+
+lua_vm::Module lua_module();
 
 // Returns nullptr before successful initialization.
 M5Canvas* active_canvas();
