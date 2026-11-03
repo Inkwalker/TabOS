@@ -20,7 +20,9 @@ extern const char boot_end[] asm("_binary_boot_lua_end");
 namespace lua_vm {
 namespace {
 constexpr const char* tag = "lua_vm";
-constexpr TickType_t frame_interval = pdMS_TO_TICKS(20);
+constexpr TickType_t updates_per_second = 60;
+constexpr TickType_t ticks_per_second = configTICK_RATE_HZ;
+static_assert(ticks_per_second >= updates_per_second);
 
 struct PendingModules {
     size_t count;
@@ -81,6 +83,7 @@ void run(lua_State* state, std::unique_ptr<PendingModules>& modules)
     ESP_LOGI(tag, "Running boot.lua on core %d", static_cast<int>(xPortGetCoreID()));
     auto previous = esp_timer_get_time();
     auto wake = xTaskGetTickCount();
+    TickType_t tick_remainder = 0;
     for (;;) {
         const auto now = esp_timer_get_time();
         const auto dt = static_cast<lua_Number>(now - previous) / 1000000;
@@ -94,10 +97,14 @@ void run(lua_State* state, std::unique_ptr<PendingModules>& modules)
             return;
         }
 
-        // Yield even when drawing and presentation overrun the frame interval.
-        if (xTaskDelayUntil(&wake, frame_interval) == pdFALSE) {
+        // Carry fractional ticks forward to maintain the average update cadence.
+        tick_remainder += ticks_per_second;
+        const auto frame_ticks = tick_remainder / updates_per_second;
+        tick_remainder %= updates_per_second;
+        if (xTaskDelayUntil(&wake, frame_ticks) == pdFALSE) {
             vTaskDelay(1);
             wake = xTaskGetTickCount();
+            tick_remainder = 0;
         }
     }
 }
