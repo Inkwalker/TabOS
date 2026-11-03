@@ -4,9 +4,11 @@
 #include <cstring>
 #include <utility>
 
+#include "esp_async_memcpy.h"
 #include "esp_cache.h"
 #include "esp_check.h"
 #include "esp_ipc.h"
+#include "esp_heap_caps.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_log.h"
 #include "esp_private/esp_dma_utils.h"
@@ -370,8 +372,13 @@ void present_framebuffer(ScreenTransfer& transfer, const uint8_t* framebuffer)
     ++presented;
 }
 
-M5Canvas canvases[3];
-int active_index = 0;
+constexpr size_t canvas_bytes = canvas_width * canvas_height * sizeof(uint16_t);
+static_assert(canvas_bytes % dma_alignment == 0);
+M5Canvas drawing_canvas;
+M5Canvas canvases[2];
+async_memcpy_handle_t submit_dma = nullptr;
+StaticSemaphore_t submit_done_storage;
+SemaphoreHandle_t submit_done = nullptr;
 int mailbox_index = 1;
 bool frame_pending = false;
 portMUX_TYPE mailbox_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -380,7 +387,7 @@ ScreenTransfer transfer;
 
 void present_frames(void*)
 {
-    int presenter_index = 2;
+    int presenter_index = 0;
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         portENTER_CRITICAL(&mailbox_lock);
@@ -432,17 +439,47 @@ bool start_presenter()
 bool initialized = false;
 uint16_t draw_color = TFT_WHITE;
 
-bool setup_canvas(M5Canvas& canvas)
+bool setup_canvas(M5Canvas& canvas, uint32_t caps)
 {
-    canvas.setColorDepth(lgfx::color_depth_t::rgb565_nonswapped);
-    canvas.setPsram(true);
-    if (!canvas.createSprite(canvas_width, canvas_height)) {
+    auto* pixels = heap_caps_aligned_calloc(dma_alignment, 1, canvas_bytes, caps);
+    if (!pixels) {
+        ESP_LOGE(tag, "Could not allocate canvas pixels (caps %#lx)",
+                 static_cast<unsigned long>(caps));
         return false;
     }
+    canvas.setColorDepth(lgfx::color_depth_t::rgb565_nonswapped);
+    canvas.setBuffer(pixels, canvas_width, canvas_height);
     canvas.setTextSize(1);
     canvas.setTextColor(TFT_WHITE, TFT_BLACK);
     canvas.setTextWrap(false);
     return true;
+}
+
+void release_canvas(M5Canvas& canvas)
+{
+    auto* pixels = canvas.getBuffer();
+    canvas.deleteSprite();
+    heap_caps_free(pixels);
+}
+
+bool IRAM_ATTR signal_submit_done(async_memcpy_handle_t, async_memcpy_event_t*, void* context)
+{
+    BaseType_t woken = pdFALSE;
+    xSemaphoreGiveFromISR(static_cast<SemaphoreHandle_t>(context), &woken);
+    return woken == pdTRUE;
+}
+
+bool init_submit_dma()
+{
+    async_memcpy_config_t config{};
+    config.backlog = 2;
+    config.dma_burst_size = dma_alignment;
+    submit_done = xSemaphoreCreateBinaryStatic(&submit_done_storage);
+    const auto result = esp_async_memcpy_install_gdma_axi(&config, &submit_dma);
+    if (result != ESP_OK) {
+        ESP_LOGE(tag, "Could not initialize canvas DMA (%s)", esp_err_to_name(result));
+    }
+    return result == ESP_OK;
 }
 
 }
@@ -461,10 +498,18 @@ bool init()
         ESP_LOGE(tag, "Expected a %dx%d portrait framebuffer", screen_height, screen_width);
         return false;
     }
-    if (!setup_canvas(canvases[0]) || !setup_canvas(canvases[1]) ||
-        !setup_canvas(canvases[2]) || !start_presenter()) {
+    if (!setup_canvas(drawing_canvas, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT) ||
+        !setup_canvas(canvases[0], MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) ||
+        !setup_canvas(canvases[1], MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) ||
+        !init_submit_dma() ||
+        !start_presenter()) {
+        if (submit_dma) {
+            esp_async_memcpy_uninstall(submit_dma);
+            submit_dma = nullptr;
+        }
+        release_canvas(drawing_canvas);
         for (auto& canvas : canvases) {
-            canvas.deleteSprite();
+            release_canvas(canvas);
         }
         return false;
     }
@@ -474,7 +519,7 @@ bool init()
 
 M5Canvas* active_canvas()
 {
-    return initialized ? &canvases[active_index] : nullptr;
+    return initialized ? &drawing_canvas : nullptr;
 }
 
 bool swap_canvas()
@@ -483,9 +528,21 @@ bool swap_canvas()
         return false;
     }
 
-    // Reclaim the mailbox canvas, dropping its frame if it was still pending.
+    // Reserve the mailbox for DMA, dropping its old frame if still pending.
     portENTER_CRITICAL(&mailbox_lock);
-    std::swap(active_index, mailbox_index);
+    frame_pending = false;
+    auto* destination = canvases[mailbox_index].getBuffer();
+    portEXIT_CRITICAL(&mailbox_lock);
+
+    const auto result = esp_async_memcpy(submit_dma, destination, drawing_canvas.getBuffer(),
+                                         canvas_bytes, signal_submit_done, submit_done);
+    if (result != ESP_OK) {
+        ESP_LOGE(tag, "Canvas DMA submission failed (%s)", esp_err_to_name(result));
+        return false;
+    }
+    // Lua can resume drawing once GDMA has finished reading the only drawing canvas.
+    xSemaphoreTake(submit_done, portMAX_DELAY);
+    portENTER_CRITICAL(&mailbox_lock);
     frame_pending = true;
     portEXIT_CRITICAL(&mailbox_lock);
     xTaskNotifyGive(presenter);
