@@ -1,8 +1,10 @@
 local width, height = 32, 32
 local rectangles = {}
 local max_x, max_y = gfx.width - width, gfx.height - height
-local fps_label = " FPS: --"
+local fps_label = "FPS: --"
 local frame_count, frame_time = 0, 0
+local sram_label = "SRAM: --"
+local psram_label = "PSRAM: --"
 
 local function move(position, speed, limit, dt)
     position = position + speed * dt
@@ -16,6 +18,11 @@ end
 
 function init()
     gfx.print(1, 1, "Initializing...")
+
+    sys.set_led(1, 0, 0, 255)
+    sys.set_led(2, 0, 0, 0)
+    sys.set_led_brightness(10)
+
     for i = 1, 100 do
         rectangles[i] = {
             x = math.random(0, max_x),
@@ -25,6 +32,8 @@ function init()
             color = math.random(1, 0xffff),
         }
     end
+
+    sys.set_led(1, 255, 128, 40)
 end
 
 -- dt is elapsed time in seconds.
@@ -33,8 +42,13 @@ function update(dt)
     frame_time = frame_time + dt
     if frame_time >= 0.5 then
         local presenter_fps = gfx.presenter_fps()
-        fps_label = " FPS: " .. math.floor(frame_count / frame_time + 0.5) .. " (" .. math.floor(presenter_fps + 0.5) .. ")"
+        fps_label = "FPS: " .. math.floor(frame_count / frame_time + 0.5) .. " (" .. math.floor(presenter_fps + 0.5) .. ")"
         frame_count, frame_time = 0, 0
+
+        local sram_used, sram_total   = sys.sram()
+        local psram_used, psram_total = sys.psram()
+        sram_label = "SRAM: " .. sram_used // 1000 .. "K / " .. sram_total // 1000 .. "K"
+        psram_label = "PSRAM: " .. psram_used // 1000 .. "K / " .. psram_total // 1000 .. "K"
     end
 
     if dt > 0.01 then dt = 0.01 end
@@ -55,7 +69,13 @@ function update(dt)
         gfx.color(rect.color)
         gfx.rectfill(math.floor(rect.x), math.floor(rect.y), width, height)
     end
+
+    gfx.color(0x0000)
+    gfx.print(2, 2, fps_label)
+
     gfx.color(0xffff)
     gfx.print(1, 1, fps_label)
+    gfx.print(1, 160, sram_label)
+    gfx.print(1, 170, psram_label)
     gfx.flip()
 end

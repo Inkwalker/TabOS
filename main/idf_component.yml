@@ -15,4 +15,7 @@ dependencies:
   #   # All dependencies of `main` are public by default.
   #   public: true
   m5stack/m5unified: ^0.2.29
+  m5stack/M5UnitUnified:
+    git: https://github.com/m5stack/M5UnitUnified.git
+    version: 68a8fa74959a3c18ffae5ce7f73ac61ecf651d4c
   espressif/lua: ^5.5.1

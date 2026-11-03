@@ -13,6 +13,64 @@ dependencies:
     source:
       type: idf
     version: 5.5.6
+  m5stack/M5HAL:
+    component_hash: 2716c8d9f99a892fe089ac00be07ef3300ba0982f9fb1af63b028c84f1f6e3a2
+    dependencies:
+    - name: idf
+      version: '>=5.0'
+    - git: https://github.com/m5stack/M5Utility.git
+      name: m5stack/M5Utility
+      version: main
+    source:
+      git: https://github.com/m5stack/M5HAL.git
+      path: .
+      type: git
+    targets:
+    - esp32
+    - esp32s3
+    - esp32s2
+    - esp32c3
+    - esp32c6
+    - esp32p4
+    - esp32h2
+    - esp32c5
+    - esp32c61
+    version: e3a84320f21bb48062f8101301020e946182a71d
+  m5stack/M5UnitUnified:
+    component_hash: 5b082aa54c1efcd0acd9c3e38161704aab00675d2246da18617607393d8d3597
+    dependencies:
+    - name: idf
+      version: '>=5.1'
+    - git: https://github.com/m5stack/M5HAL.git
+      name: m5stack/M5HAL
+      version: main
+    - git: https://github.com/m5stack/M5Utility.git
+      name: m5stack/M5Utility
+      version: main
+    source:
+      git: https://github.com/m5stack/M5UnitUnified.git
+      path: .
+      type: git
+    targets:
+    - esp32
+    - esp32s3
+    - esp32c3
+    - esp32c5
+    - esp32c6
+    - esp32c61
+    - esp32p4
+    - esp32h2
+    version: 68a8fa74959a3c18ffae5ce7f73ac61ecf651d4c
+  m5stack/M5Utility:
+    component_hash: 3c12af1f59016163623dda547775632078782b09f35573fcaf18229e096a929b
+    dependencies:
+    - name: idf
+      version: '>=5.0'
+    source:
+      git: https://github.com/m5stack/M5Utility.git
+      path: .
+      type: git
+    version: 336195d0f9466332552b337b94cab72f83c8d2ca
   m5stack/m5gfx:
     component_hash: e97781f48f14c6c65b90ba7cfe27deb3ff7eae8ec61a60040ab3615d166c82f4
     dependencies: []
@@ -34,7 +92,8 @@ dependencies:
 direct_dependencies:
 - espressif/lua
 - idf
+- m5stack/M5UnitUnified
 - m5stack/m5unified
-manifest_hash: 7b5ebfaf5dc1fd705c83f363d621c135c83e76c69d8cfd1a8bdaebb35ee889fa
+manifest_hash: 7ffce3fdf889c62c3614f464e20c2d4e170dd8645a214220e667b708b70b7ceb
 target: esp32p4
 version: 2.0.0

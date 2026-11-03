@@ -2,6 +2,7 @@
 #include "esp_log.h"
 #include "gfx/gfx.hpp"
 #include "lua/lua_vm.hpp"
+#include "system/system.hpp"
 
 extern "C" void app_main()
 {
@@ -14,12 +15,16 @@ extern "C" void app_main()
     M5.begin(config);
     M5.Display.setBrightness(128);
 
+    if (!tabos::system::init()) {
+        ESP_LOGW("tabos", "Could not initialize keyboard LED custom mode");
+    }
+
     if (!gfx::init()) {
         ESP_LOGE("tabos", "Could not initialize graphics");
         return;
     }
 
-    if (!lua_vm::start({gfx::lua_module()})) {
+    if (!lua_vm::start({gfx::lua_module(), tabos::system::lua_module()})) {
         ESP_LOGE("tabos", "Could not start the Lua VM task");
     }
 }

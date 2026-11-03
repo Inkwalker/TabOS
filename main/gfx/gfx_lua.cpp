@@ -105,7 +105,7 @@ int text(lua_State* state)
     size_t length;
     const auto* value = luaL_checklstring(state, 3, &length);
     auto& target = canvas(state);
-    target.setTextColor(gfx::get_color(), TFT_BLACK);
+    target.setTextColor(gfx::get_color());
     target.setCursor(x, y);
     target.write(reinterpret_cast<const uint8_t*>(value), length);
     return 0;

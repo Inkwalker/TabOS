@@ -450,7 +450,7 @@ bool setup_canvas(M5Canvas& canvas, uint32_t caps)
     canvas.setColorDepth(lgfx::color_depth_t::rgb565_nonswapped);
     canvas.setBuffer(pixels, canvas_width, canvas_height);
     canvas.setTextSize(1);
-    canvas.setTextColor(TFT_WHITE, TFT_BLACK);
+    canvas.setTextColor(TFT_WHITE);
     canvas.setTextWrap(false);
     return true;
 }

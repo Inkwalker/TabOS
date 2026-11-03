@@ -1,0 +1,106 @@
+#include "system.hpp"
+
+#include "M5Unified.h"
+#include "esp_heap_caps.h"
+#include "lua/module_definition.hpp"
+#include "unit/unit_Tab5Keyboard.hpp"
+
+extern "C" {
+#include "lauxlib.h"
+}
+
+namespace tabos::system {
+namespace {
+
+m5::I2C_Class keyboard_bus;
+m5::unit::UnitTab5Keyboard keyboard;
+bool keyboard_bus_open = false;
+bool keyboard_attached = false;
+
+bool enable_custom_rgb()
+{
+    // The Tab5 keyboard is on Ext.Port1 (SDA GPIO0, SCL GPIO1).
+    if (!keyboard_bus_open) {
+        keyboard_bus_open = keyboard_bus.begin(I2C_NUM_0, 0, 1);
+    }
+    if (keyboard_bus_open && !keyboard_attached) {
+        auto config = keyboard.component_config();
+        config.clock = 100000;
+        keyboard.component_config(config);
+        // Attach the transport without initializing key scanning or changing the key mode.
+        keyboard_attached = keyboard.assign(keyboard_bus);
+    }
+    // Reapply the mode in case the keyboard was connected or reset after boot.
+    return keyboard_attached && keyboard.writeRgbMode(m5::unit::tab5_keyboard::RgbMode::Custom);
+}
+
+uint8_t check_range(lua_State* state, int index, int min, int max, const char* message)
+{
+    const auto value = luaL_checkinteger(state, index);
+    luaL_argcheck(state, value >= min && value <= max, index, message);
+    return static_cast<uint8_t>(value);
+}
+
+int set_keyboard_led(lua_State* state)
+{
+    const auto led = check_range(state, 1, 1, 2, "expected LED 1 (left) or 2 (right)");
+    const auto red = check_range(state, 2, 0, 255, "expected red in 0..255");
+    const auto green = check_range(state, 3, 0, 255, "expected green in 0..255");
+    const auto blue = check_range(state, 4, 0, 255, "expected blue in 0..255");
+    lua_pushboolean(state, enable_custom_rgb() && keyboard.writeRgb(led - 1, red, green, blue));
+    return 1;
+}
+
+int set_keyboard_led_brightness(lua_State* state)
+{
+    const auto percent = check_range(state, 1, 0, 100, "expected brightness in 0..100");
+    lua_pushboolean(state, enable_custom_rgb() && keyboard.writeBrightness(percent));
+    return 1;
+}
+
+int push_memory(lua_State* state, uint32_t caps)
+{
+    const auto total = heap_caps_get_total_size(caps);
+    const auto free = heap_caps_get_free_size(caps);
+    lua_pushinteger(state, total - free);
+    lua_pushinteger(state, total);
+    return 2;
+}
+
+int sram(lua_State* state)
+{
+    return push_memory(state, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+
+int psram(lua_State* state)
+{
+    return push_memory(state, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+}
+
+int push_system_table(lua_State* state)
+{
+    const luaL_Reg functions[] = {
+        {"set_led", set_keyboard_led},
+        {"set_led_brightness", set_keyboard_led_brightness},
+        {"sram", sram},
+        {"psram", psram},
+        {nullptr, nullptr},
+    };
+    luaL_newlib(state, functions);
+    return 1;
+}
+
+}
+
+bool init()
+{
+    return enable_custom_rgb();
+}
+
+lua_vm::Module lua_module()
+{
+    static const lua_vm::Module::Definition definition{"sys", push_system_table};
+    return lua_vm::Module{definition};
+}
+
+}
