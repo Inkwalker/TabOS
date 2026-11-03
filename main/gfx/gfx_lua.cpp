@@ -118,12 +118,19 @@ int swap_canvas(lua_State* state)
     return 0;
 }
 
+int presenter_fps(lua_State* state)
+{
+    lua_pushnumber(state, gfx::presenter_fps());
+    return 1;
+}
+
 int push_gfx_table(lua_State* state)
 {
     const auto& target = canvas(state);
     const luaL_Reg functions[] = {
         {"cls", clear},
         {"flip", swap_canvas},
+        {"presenter_fps", presenter_fps},
         {"color", set_color},
         {"rectfill", fill_rect},
         {"rect", rect},
