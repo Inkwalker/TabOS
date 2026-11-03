@@ -20,7 +20,7 @@
     }
   },
   "idf.openOcdConfigs": [
-    "board/esp32p4-lpcore-builtin.cfg"
+    "board/esp32p4-builtin.cfg"
   ],
   "idf.port": "COM3",
   "idf.currentSetup": "D:\\esp\\v5.5.6\\esp-idf",
