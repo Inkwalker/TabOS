@@ -6,6 +6,14 @@ local frame_count, frame_time = 0, 0
 local sram_label = "SRAM: --"
 local psram_label = "PSRAM: --"
 local battery_level, battery_charging
+
+local function clock_text()
+    local minutes = sys.get_time() // 60
+    local hour, minute = minutes // 60 % 24, minutes % 60
+    return (hour < 10 and "0" or "") .. hour .. ":" .. (minute < 10 and "0" or "") .. minute
+end
+
+local time_label = clock_text()
 local battery_colors = {
     background = gfx.rgb(12, 19, 29),
     track = gfx.rgb(37, 49, 64),
@@ -90,6 +98,7 @@ function update(dt)
         local level = sys.bat_lvl()
         battery_level = level and math.min(100, math.max(0, level))
         battery_charging = sys.bat_chrg()
+        time_label = clock_text()
     end
 
     if dt > 0.01 then dt = 0.01 end
@@ -118,6 +127,7 @@ function update(dt)
     gfx.print(1, 1, fps_label)
     gfx.print(1, 160, sram_label)
     gfx.print(1, 170, psram_label)
+    gfx.print(gfx.width - 50, 1, time_label, battery_colors.outline)
     draw_battery()
     gfx.flip()
 end

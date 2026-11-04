@@ -5,6 +5,9 @@
 #include "lua/module_definition.hpp"
 #include "unit/unit_Tab5Keyboard.hpp"
 
+#include <sys/time.h>
+#include <time.h>
+
 extern "C" {
 #include "lauxlib.h"
 }
@@ -99,6 +102,38 @@ int is_charging(lua_State* state)
     return 1;
 }
 
+int get_time(lua_State* state)
+{
+    lua_pushinteger(state, time(nullptr));
+    return 1;
+}
+
+int set_time(lua_State* state)
+{
+    // The Tab5 RTC represents years 2000 through 2099.
+    const auto timestamp = luaL_checkinteger(state, 1);
+    luaL_argcheck(state, timestamp >= 946684800LL && timestamp < 4102444800LL, 1,
+                  "expected Unix seconds in UTC years 2000 through 2099");
+    const time_t epoch = timestamp;
+    struct tm utc{};
+    if (!gmtime_r(&epoch, &utc)) {
+        return luaL_error(state, "could not convert timestamp to UTC");
+    }
+
+    // Use the driver to get the write result before changing the system clock.
+    auto* rtc = M5.Rtc.getRtcInstancePtr();
+    const m5::rtc_datetime_t date_time{utc};
+    if (!rtc || !rtc->setDateTime(&date_time.date, &date_time.time)) {
+        return luaL_error(state, "could not update hardware RTC");
+    }
+
+    const timeval clock_time{epoch, 0};
+    if (settimeofday(&clock_time, nullptr) != 0) {
+        return luaL_error(state, "RTC updated but could not set system time");
+    }
+    return 0;
+}
+
 int push_system_table(lua_State* state)
 {
     const luaL_Reg functions[] = {
@@ -108,6 +143,8 @@ int push_system_table(lua_State* state)
         {"psram", psram},
         {"bat_lvl", battery_level},
         {"bat_chrg", is_charging},
+        {"get_time", get_time},
+        {"set_time", set_time},
         {nullptr, nullptr},
     };
     luaL_newlib(state, functions);

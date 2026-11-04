@@ -8,7 +8,7 @@ extern "C" void app_main()
 {
     auto config = M5.config();
     config.internal_imu = false;
-    config.internal_rtc = false;
+    config.internal_rtc = true;
     config.internal_mic = false;
     config.internal_spk = false;
     config.external_display_value = 0;
