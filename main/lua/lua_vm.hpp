@@ -1,8 +1,11 @@
 #pragma once
 
 #include <initializer_list>
+#include <string_view>
 
 namespace lua_vm {
+
+enum class ScriptKind { File, Source };
 
 class Module {
 public:
@@ -12,10 +15,11 @@ public:
 
 private:
     const Definition& definition_;
-    friend bool start(std::initializer_list<Module> modules);
+    friend bool start(ScriptKind kind, std::string_view script, std::initializer_list<Module> modules);
 };
 
-// Copies the descriptors and starts boot.lua on a task pinned to the calling core.
+// Copies the file path or Lua source and the module descriptors before starting
+// a task pinned to the calling core. Returns whether the task was started.
 // Installs modules in list order. Later entries replace globals with the same name.
-bool start(std::initializer_list<Module> modules);
+bool start(ScriptKind kind, std::string_view script, std::initializer_list<Module> modules);
 }

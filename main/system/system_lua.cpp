@@ -1,5 +1,7 @@
 #include "system.hpp"
 
+#include <cstdio>
+
 #include "M5Unified.h"
 #include "esp_heap_caps.h"
 #include "lua/module_definition.hpp"

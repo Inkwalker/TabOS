@@ -1,9 +1,10 @@
 #include "lua/module_definition.hpp"
 
-#include "gfx.hpp"
-
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
+
+#include "gfx.hpp"
 
 extern "C" {
     #include "lauxlib.h"

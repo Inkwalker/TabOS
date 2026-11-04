@@ -20,3 +20,7 @@ CONFIG_FREERTOS_HZ=120
 
 # Keep presentation on core 1 so it can overlap with Lua drawing on core 0.
 CONFIG_ESP_MAIN_TASK_AFFINITY_CPU1=y
+
+# Partitions
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"

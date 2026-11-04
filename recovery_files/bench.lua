@@ -64,10 +64,6 @@ end
 function init()
     gfx.print(1, 1, "Initializing...")
 
-    sys.set_led(1, 0, 0, 255)
-    sys.set_led(2, 0, 0, 0)
-    sys.set_led_brightness(10)
-
     for i = 1, 100 do
         rectangles[i] = {
             x = math.random(0, max_x),
@@ -77,8 +73,6 @@ function init()
             color = math.random(1, 0xffff),
         }
     end
-
-    sys.set_led(1, 255, 128, 40)
 end
 
 -- dt is elapsed time in seconds.

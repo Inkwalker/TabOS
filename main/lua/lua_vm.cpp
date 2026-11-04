@@ -1,5 +1,6 @@
 #include "module_definition.hpp"
 
+#include <algorithm>
 #include <memory>
 #include <new>
 
@@ -12,9 +13,6 @@ extern "C" {
 #include "lauxlib.h"
 #include "lua.h"
 #include "lualib.h"
-
-extern const char boot_start[] asm("_binary_boot_lua_start");
-extern const char boot_end[] asm("_binary_boot_lua_end");
 }
 
 namespace lua_vm {
@@ -24,25 +22,30 @@ constexpr TickType_t updates_per_second = 60;
 constexpr TickType_t ticks_per_second = configTICK_RATE_HZ;
 static_assert(ticks_per_second >= updates_per_second);
 
-struct PendingModules {
+struct Startup {
+    ScriptKind kind;
+    size_t script_size;
+    std::unique_ptr<char[]> script;
     size_t count;
     std::unique_ptr<Module::Definition[]> definitions;
 };
 
 int load_boot_script(lua_State* state)
 {
-    luaL_requiref(state, LUA_MATHLIBNAME, luaopen_math, 1);
-    lua_pop(state, 1);
+    luaL_openselectedlibs(state, LUA_GLIBK | LUA_LOADLIBK | LUA_MATHLIBK, 0);
 
-    const auto& modules = *static_cast<const PendingModules*>(lua_touserdata(state, 1));
-    for (size_t i = 0; i < modules.count; ++i) {
-        const auto& module = modules.definitions[i];
+    const auto& startup = *static_cast<const Startup*>(lua_touserdata(state, 1));
+    for (size_t i = 0; i < startup.count; ++i) {
+        const auto& module = startup.definitions[i];
         lua_pushcfunction(state, module.push_table);
         lua_call(state, 0, 1);
         lua_setglobal(state, module.name);
     }
 
-    if (luaL_loadbufferx(state, boot_start, boot_end - boot_start, "@boot.lua", "t") != LUA_OK) {
+    const int status = startup.kind == ScriptKind::File
+        ? luaL_loadfilex(state, startup.script.get(), "t")
+        : luaL_loadbufferx(state, startup.script.get(), startup.script_size, "=startup", "t");
+    if (status != LUA_OK) {
         return lua_error(state);
     }
     lua_call(state, 0, 0);
@@ -52,24 +55,24 @@ int load_boot_script(lua_State* state)
         lua_pop(state, 1);
     } else {
         if (!lua_isfunction(state, -1)) {
-            return luaL_error(state, "boot.lua init must be a function");
+            return luaL_error(state, "Startup script init must be a function");
         }
         lua_call(state, 0, 0);
     }
 
     lua_getglobal(state, "update");
     if (!lua_isnil(state, -1) && !lua_isfunction(state, -1)) {
-        return luaL_error(state, "boot.lua update must be a function");
+        return luaL_error(state, "Startup script update must be a function");
     }
     return 1;
 }
 
-void run(lua_State* state, std::unique_ptr<PendingModules>& modules)
+void run(lua_State* state, std::unique_ptr<Startup>& startup)
 {
     lua_pushcfunction(state, load_boot_script);
-    lua_pushlightuserdata(state, modules.get());
+    lua_pushlightuserdata(state, startup.get());
     const int status = lua_pcall(state, 1, 1, 0);
-    modules.reset();
+    startup.reset();
     if (status != LUA_OK) {
         const char* message = lua_type(state, -1) == LUA_TSTRING ? lua_tostring(state, -1) : nullptr;
         ESP_LOGE(tag, "Boot failed: %s", message ? message : "(no error message)");
@@ -80,7 +83,7 @@ void run(lua_State* state, std::unique_ptr<PendingModules>& modules)
         return;
     }
 
-    ESP_LOGI(tag, "Running boot.lua on core %d", static_cast<int>(xPortGetCoreID()));
+    ESP_LOGI(tag, "Running Lua update loop on core %d", static_cast<int>(xPortGetCoreID()));
     auto previous = esp_timer_get_time();
     auto wake = xTaskGetTickCount();
     TickType_t tick_remainder = 0;
@@ -111,29 +114,37 @@ void run(lua_State* state, std::unique_ptr<PendingModules>& modules)
 
 void task(void* context)
 {
-    std::unique_ptr<PendingModules> modules(static_cast<PendingModules*>(context));
+    std::unique_ptr<Startup> startup(static_cast<Startup*>(context));
 
     if (auto* state = luaL_newstate()) {
-        run(state, modules);
+        run(state, startup);
         lua_close(state);
     } else {
         ESP_LOGE(tag, "Could not allocate a Lua state");
     }
-    modules.reset();
+    startup.reset();
     vTaskDelete(nullptr);
 }
 }
 
-bool start(std::initializer_list<Module> modules)
+bool start(ScriptKind kind, std::string_view script, std::initializer_list<Module> modules)
 {
-    auto* pending = new (std::nothrow) PendingModules{modules.size(), {}};
+    if (kind == ScriptKind::File && (script.empty() || script.find('\0') != std::string_view::npos)) {
+        return false;
+    }
+    std::unique_ptr<Startup> pending(new (std::nothrow) Startup{kind, script.size(), {}, modules.size(), {}});
     if (!pending) {
         return false;
     }
+    pending->script.reset(new (std::nothrow) char[script.size() + 1]);
+    if (!pending->script) {
+        return false;
+    }
+    std::copy(script.begin(), script.end(), pending->script.get());
+    pending->script[script.size()] = '\0';
     if (pending->count != 0) {
         pending->definitions.reset(new (std::nothrow) Module::Definition[pending->count]);
         if (!pending->definitions) {
-            delete pending;
             return false;
         }
         size_t i = 0;
@@ -141,9 +152,10 @@ bool start(std::initializer_list<Module> modules)
             pending->definitions[i++] = module.definition_;
         }
     }
-    if (xTaskCreatePinnedToCore(task, "lua_vm", 8192, pending,
+    auto* context = pending.release();
+    if (xTaskCreatePinnedToCore(task, "lua_vm", 8192, context,
                                 uxTaskPriorityGet(nullptr), nullptr, xPortGetCoreID()) != pdPASS) {
-        delete pending;
+        delete context;
         return false;
     }
     return true;

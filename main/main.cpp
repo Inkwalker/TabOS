@@ -1,5 +1,7 @@
 #include "M5Unified.h"
+#include "esp_err.h"
 #include "esp_log.h"
+#include "esp_vfs_fat.h"
 #include "gfx/gfx.hpp"
 #include "input/input.hpp"
 #include "lua/lua_vm.hpp"
@@ -25,7 +27,16 @@ extern "C" void app_main()
         return;
     }
 
-    if (!lua_vm::start({gfx::lua_module(), tabos::system::lua_module(), tabos::input::lua_module()})) {
+    const esp_vfs_fat_mount_config_t recovery_config = VFS_FAT_MOUNT_DEFAULT_CONFIG();
+    const esp_err_t recovery_status =
+        esp_vfs_fat_spiflash_mount_ro("/recovery", "recovery", &recovery_config);
+    if (recovery_status != ESP_OK) {
+        ESP_LOGE("tabos", "Could not mount /recovery: %s", esp_err_to_name(recovery_status));
+        return;
+    }
+
+    if (!lua_vm::start(lua_vm::ScriptKind::File, "/recovery/boot.lua",
+                       {gfx::lua_module(), tabos::system::lua_module(), tabos::input::lua_module()})) {
         ESP_LOGE("tabos", "Could not start the Lua VM task");
     }
 }
