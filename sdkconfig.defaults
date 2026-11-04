@@ -23,9 +23,12 @@ CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
 CONFIG_FREERTOS_RUN_TIME_STATS_USING_ESP_TIMER=y
 CONFIG_FREERTOS_RUN_TIME_COUNTER_TYPE_U64=y
 
-# Keep presentation on core 1 so it can overlap with Lua drawing on core 0.
+# Keep presentation on core 0 so it can overlap with Lua drawing on core 1.
 CONFIG_ESP_MAIN_TASK_AFFINITY_CPU1=y
 
 # Partitions
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# Lua
+CONFIG_LUA_USE_PSRAM=y

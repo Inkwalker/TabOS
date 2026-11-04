@@ -7,6 +7,9 @@ local sram_label = "SRAM: --"
 local psram_label = "PSRAM: --"
 local cpu_label = "CPU0: --  CPU1: --"
 local glyph_width = 6 -- Default gfx.print font at size 1.
+local count_y = gfx.height - 9
+local attraction_radius = 80
+local attraction_strength = 2
 
 local function move(position, speed, limit, dt)
     position = position + speed * dt
@@ -18,11 +21,29 @@ local function move(position, speed, limit, dt)
     return position, speed
 end
 
-function init()
-    gfx.print(1, 1, "Initializing...")
-    sys.cpu_load()
+local function steer_toward_touches(rect, touches, dt)
+    for _, touch in ipairs(touches) do
+        local dx = touch.x - (rect.x + width / 2)
+        local dy = touch.y - (rect.y + height / 2)
+        local distance_squared = dx * dx + dy * dy
+        if distance_squared > 0 and distance_squared < attraction_radius * attraction_radius then
+            local distance = math.sqrt(distance_squared)
+            local speed = math.sqrt(rect.vx * rect.vx + rect.vy * rect.vy)
+            local pull = attraction_strength * dt * (1 - distance / attraction_radius)
+            local vx = rect.vx + dx / distance * speed * pull
+            local vy = rect.vy + dy / distance * speed * pull
+            local scale = speed / math.sqrt(vx * vx + vy * vy)
+            rect.vx, rect.vy = vx * scale, vy * scale
+        end
+    end
+end
 
-    for i = 1, 100 do
+local function set_square_count(count)
+    count = math.max(1, count)
+    for i = #rectangles, count + 1, -1 do
+        rectangles[i] = nil
+    end
+    for i = #rectangles + 1, count do
         rectangles[i] = {
             x = math.random(0, max_x),
             y = math.random(0, max_y),
@@ -33,9 +54,18 @@ function init()
     end
 end
 
+function init()
+    gfx.print(1, 1, "Initializing...")
+    sys.cpu_load()
+    set_square_count(100)
+end
+
 -- dt is elapsed time in seconds.
 function update(dt)
     input.update()
+    for key in input.txt():gmatch("[+%-]") do
+        set_square_count(#rectangles + (key == "+" and 50 or -50))
+    end
 
     frame_count = frame_count + 1
     frame_time = frame_time + dt
@@ -56,9 +86,13 @@ function update(dt)
     end
 
     if dt > 0.01 then dt = 0.01 end
+    local touches = input.touch()
     gfx.cls()
     for i = 1, #rectangles do
         local rect = rectangles[i]
+        if #touches > 0 then
+            steer_toward_touches(rect, touches, dt)
+        end
         local previous_vx, previous_vy = rect.vx, rect.vy
         rect.x, rect.vx = move(rect.x, rect.vx, max_x, dt)
         rect.y, rect.vy = move(rect.y, rect.vy, max_y, dt)
@@ -84,10 +118,15 @@ function update(dt)
     gfx.print(cpu_x, 1, cpu_label)
     gfx.print(1, 160, sram_label)
     gfx.print(1, 170, psram_label)
-    local touches = input.touch()
     for i = 1, #touches do
         local touch = touches[i]
         gfx.circ(touch.x, touch.y, 16, 0xffff)
     end
+
+    local count_label = "Squares: " .. #rectangles
+    local count_width = #count_label * glyph_width
+    local count_x = gfx.width - count_width - 1
+    gfx.rectfill(count_x - 1, count_y - 1, count_width + 2, 10, 0x0000)
+    gfx.print(count_x, count_y, count_label, 0xffff)
     gfx.flip()
 end
