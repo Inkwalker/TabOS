@@ -77,6 +77,28 @@ int psram(lua_State* state)
     return push_memory(state, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 }
 
+int battery_level(lua_State* state)
+{
+    const auto level = M5.Power.getBatteryLevel();
+    if (level < 0) {
+        lua_pushnil(state);
+    } else {
+        lua_pushinteger(state, level);
+    }
+    return 1;
+}
+
+int is_charging(lua_State* state)
+{
+    const auto status = M5.Power.isCharging();
+    if (status == m5::Power_Class::charge_unknown) {
+        lua_pushnil(state);
+    } else {
+        lua_pushboolean(state, status == m5::Power_Class::is_charging);
+    }
+    return 1;
+}
+
 int push_system_table(lua_State* state)
 {
     const luaL_Reg functions[] = {
@@ -84,6 +106,8 @@ int push_system_table(lua_State* state)
         {"set_led_brightness", set_keyboard_led_brightness},
         {"sram", sram},
         {"psram", psram},
+        {"bat_lvl", battery_level},
+        {"bat_chrg", is_charging},
         {nullptr, nullptr},
     };
     luaL_newlib(state, functions);

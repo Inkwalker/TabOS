@@ -5,6 +5,7 @@ local fps_label = "FPS: --"
 local frame_count, frame_time = 0, 0
 local sram_label = "SRAM: --"
 local psram_label = "PSRAM: --"
+local bat_label = "---"
 
 local function move(position, speed, limit, dt)
     position = position + speed * dt
@@ -49,6 +50,16 @@ function update(dt)
         local psram_used, psram_total = sys.psram()
         sram_label = "SRAM: " .. sram_used // 1000 .. "K / " .. sram_total // 1000 .. "K"
         psram_label = "PSRAM: " .. psram_used // 1000 .. "K / " .. psram_total // 1000 .. "K"
+
+        local bat_lvl = sys.bat_lvl()
+        local bat_chrg = sys.bat_chrg()
+        if bat_lvl then
+            if bat_chrg then
+                bat_label = bat_lvl.."^"
+            else
+                bat_label = bat_lvl.."v"
+            end
+        end
     end
 
     if dt > 0.01 then dt = 0.01 end
@@ -77,5 +88,6 @@ function update(dt)
     gfx.print(1, 1, fps_label)
     gfx.print(1, 160, sram_label)
     gfx.print(1, 170, psram_label)
+    gfx.print(296, 1, bat_label)
     gfx.flip()
 end
