@@ -83,6 +83,8 @@ end
 
 -- dt is elapsed time in seconds.
 function update(dt)
+    input.update()
+
     frame_count = frame_count + 1
     frame_time = frame_time + dt
     if frame_time >= 0.5 then
@@ -129,5 +131,10 @@ function update(dt)
     gfx.print(1, 170, psram_label)
     gfx.print(gfx.width - 50, 1, time_label, battery_colors.outline)
     draw_battery()
+    local touches = input.touch()
+    for i = 1, #touches do
+        local touch = touches[i]
+        gfx.circ(touch.x, touch.y, 16, 0xffff)
+    end
     gfx.flip()
 end

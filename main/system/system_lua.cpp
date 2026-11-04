@@ -22,19 +22,8 @@ bool keyboard_attached = false;
 
 bool enable_custom_rgb()
 {
-    // The Tab5 keyboard is on Ext.Port1 (SDA GPIO0, SCL GPIO1).
-    if (!keyboard_bus_open) {
-        keyboard_bus_open = keyboard_bus.begin(I2C_NUM_0, 0, 1);
-    }
-    if (keyboard_bus_open && !keyboard_attached) {
-        auto config = keyboard.component_config();
-        config.clock = 100000;
-        keyboard.component_config(config);
-        // Attach the transport without initializing key scanning or changing the key mode.
-        keyboard_attached = keyboard.assign(keyboard_bus);
-    }
     // Reapply the mode in case the keyboard was connected or reset after boot.
-    return keyboard_attached && keyboard.writeRgbMode(m5::unit::tab5_keyboard::RgbMode::Custom);
+    return attached_keyboard() && keyboard.writeRgbMode(m5::unit::tab5_keyboard::RgbMode::Custom);
 }
 
 uint8_t check_range(lua_State* state, int index, int min, int max, const char* message)
@@ -151,6 +140,21 @@ int push_system_table(lua_State* state)
     return 1;
 }
 
+}
+
+m5::unit::UnitTab5Keyboard* attached_keyboard()
+{
+    // The Tab5 keyboard is on Ext.Port1 (SDA GPIO0, SCL GPIO1).
+    if (!keyboard_bus_open) {
+        keyboard_bus_open = keyboard_bus.begin(I2C_NUM_0, 0, 1);
+    }
+    if (keyboard_bus_open && !keyboard_attached) {
+        auto config = keyboard.component_config();
+        config.clock = 100000;
+        keyboard.component_config(config);
+        keyboard_attached = keyboard.assign(keyboard_bus);
+    }
+    return keyboard_attached ? &keyboard : nullptr;
 }
 
 bool init()

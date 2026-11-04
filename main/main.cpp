@@ -1,13 +1,14 @@
 #include "M5Unified.h"
 #include "esp_log.h"
 #include "gfx/gfx.hpp"
+#include "input/input.hpp"
 #include "lua/lua_vm.hpp"
 #include "system/system.hpp"
 
 extern "C" void app_main()
 {
     auto config = M5.config();
-    config.internal_imu = false;
+    config.internal_imu = true;
     config.internal_rtc = true;
     config.internal_mic = false;
     config.internal_spk = false;
@@ -24,7 +25,7 @@ extern "C" void app_main()
         return;
     }
 
-    if (!lua_vm::start({gfx::lua_module(), tabos::system::lua_module()})) {
+    if (!lua_vm::start({gfx::lua_module(), tabos::system::lua_module(), tabos::input::lua_module()})) {
         ESP_LOGE("tabos", "Could not start the Lua VM task");
     }
 }
