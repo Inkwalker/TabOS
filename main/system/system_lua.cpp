@@ -1,9 +1,14 @@
 #include "system.hpp"
 
+#include <array>
 #include <cstdio>
 
 #include "M5Unified.h"
 #include "esp_heap_caps.h"
+#include "esp_ipc.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "lua/module_definition.hpp"
 #include "unit/unit_Tab5Keyboard.hpp"
 
@@ -71,6 +76,52 @@ int psram(lua_State* state)
     return push_memory(state, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 }
 
+struct CpuSample {
+    int64_t time_us = 0;
+    configRUN_TIME_COUNTER_TYPE idle_us = 0;
+};
+
+void sample_current_core(void* context)
+{
+    auto& sample = *static_cast<CpuSample*>(context);
+    sample.idle_us = ulTaskGetIdleRunTimeCounterForCore(xPortGetCoreID());
+    sample.time_us = esp_timer_get_time();
+}
+
+int cpu_load(lua_State* state)
+{
+    static std::array<CpuSample, configNUMBER_OF_CORES> previous;
+    std::array<CpuSample, configNUMBER_OF_CORES> current;
+    const auto local_core = xPortGetCoreID();
+
+    for (int core = 0; core < configNUMBER_OF_CORES; ++core) {
+        // FreeRTOS credits idle time when the idle task switches out.
+        if (core == local_core) {
+            sample_current_core(&current[core]);
+        } else if (esp_ipc_call_blocking(core, sample_current_core, &current[core]) != ESP_OK) {
+            return luaL_error(state, "could not sample CPU load");
+        }
+    }
+
+    if (previous[0].time_us == 0) {
+        previous = current;
+        lua_pushnil(state);
+        return 1;
+    }
+
+    for (int core = 0; core < configNUMBER_OF_CORES; ++core) {
+        const auto elapsed = current[core].time_us - previous[core].time_us;
+        const auto idle = current[core].idle_us - previous[core].idle_us;
+        // An idle interval can start before the previous sample's timestamp.
+        const auto load = elapsed > 0 && idle < static_cast<uint64_t>(elapsed)
+                              ? 100.0 * (1.0 - static_cast<double>(idle) / elapsed)
+                              : 0.0;
+        lua_pushnumber(state, load);
+    }
+    previous = current;
+    return configNUMBER_OF_CORES;
+}
+
 int battery_level(lua_State* state)
 {
     const auto level = M5.Power.getBatteryLevel();
@@ -132,6 +183,7 @@ int push_system_table(lua_State* state)
         {"set_led_brightness", set_keyboard_led_brightness},
         {"sram", sram},
         {"psram", psram},
+        {"cpu_load", cpu_load},
         {"bat_lvl", battery_level},
         {"bat_chrg", is_charging},
         {"get_time", get_time},

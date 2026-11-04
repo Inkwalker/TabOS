@@ -18,6 +18,11 @@ CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 CONFIG_FREERTOS_HZ=120
 
+# Collect per-task runtime in microseconds for debugging and CPU load sampling.
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+CONFIG_FREERTOS_RUN_TIME_STATS_USING_ESP_TIMER=y
+CONFIG_FREERTOS_RUN_TIME_COUNTER_TYPE_U64=y
+
 # Keep presentation on core 1 so it can overlap with Lua drawing on core 0.
 CONFIG_ESP_MAIN_TASK_AFFINITY_CPU1=y
 

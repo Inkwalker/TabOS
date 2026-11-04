@@ -5,6 +5,8 @@ local fps_label = "FPS: --"
 local frame_count, frame_time = 0, 0
 local sram_label = "SRAM: --"
 local psram_label = "PSRAM: --"
+local cpu_label = "CPU0: --  CPU1: --"
+local glyph_width = 6 -- Default gfx.print font at size 1.
 
 local function move(position, speed, limit, dt)
     position = position + speed * dt
@@ -18,6 +20,7 @@ end
 
 function init()
     gfx.print(1, 1, "Initializing...")
+    sys.cpu_load()
 
     for i = 1, 100 do
         rectangles[i] = {
@@ -45,6 +48,11 @@ function update(dt)
         local psram_used, psram_total = sys.psram()
         sram_label = "SRAM: " .. sram_used // 1000 .. "K / " .. sram_total // 1000 .. "K"
         psram_label = "PSRAM: " .. psram_used // 1000 .. "K / " .. psram_total // 1000 .. "K"
+
+        local core0, core1 = sys.cpu_load()
+        if core0 ~= nil then
+            cpu_label = string.format("CPU0: %.0f%%  CPU1: %.0f%%", core0, core1)
+        end
     end
 
     if dt > 0.01 then dt = 0.01 end
@@ -66,11 +74,14 @@ function update(dt)
         gfx.rectfill(math.floor(rect.x), math.floor(rect.y), width, height)
     end
 
+    local cpu_x = gfx.width - #cpu_label * glyph_width - 1
     gfx.color(0x0000)
     gfx.print(2, 2, fps_label)
+    gfx.print(cpu_x + 1, 2, cpu_label)
 
     gfx.color(0xffff)
     gfx.print(1, 1, fps_label)
+    gfx.print(cpu_x, 1, cpu_label)
     gfx.print(1, 160, sram_label)
     gfx.print(1, 170, psram_label)
     local touches = input.touch()

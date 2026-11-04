@@ -11,4 +11,4 @@ end
 
 chunk()
 
-sys.set_led(1, 255, 128, 40)
+sys.set_led(1, 0, 255, 0)
