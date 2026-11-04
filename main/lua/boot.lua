@@ -5,7 +5,43 @@ local fps_label = "FPS: --"
 local frame_count, frame_time = 0, 0
 local sram_label = "SRAM: --"
 local psram_label = "PSRAM: --"
-local bat_label = "---"
+local battery_level, battery_charging
+local battery_colors = {
+    background = gfx.rgb(12, 19, 29),
+    track = gfx.rgb(37, 49, 64),
+    outline = gfx.rgb(198, 214, 231),
+    normal = gfx.rgb(64, 218, 146),
+    low = gfx.rgb(255, 183, 62),
+    critical = gfx.rgb(255, 92, 97),
+    charging = gfx.rgb(108, 205, 255),
+}
+
+local function draw_battery()
+    local x, y = gfx.width - 17, 1
+    local body_width, body_height = 16, 8
+    local colors = battery_colors
+
+    gfx.rectfill(x + 1, y + 1, body_width - 1, body_height - 1, colors.background)
+    gfx.rect(x, y, body_width, body_height, colors.outline)
+    gfx.rectfill(x - 1, y + 2, 1, 4, colors.outline)
+    gfx.rectfill(x + 2, y + 2, body_width - 4, body_height - 4, colors.track)
+
+    if battery_level == nil then
+        gfx.line(x + 2, y + 4, x + body_width - 2, y + 4, colors.outline)
+    elseif battery_level > 0 then
+        local fill_width = math.ceil((body_width - 4) * battery_level / 100)
+        local fill = colors.normal
+        if battery_level <= 10 then
+            fill = colors.critical
+        elseif battery_level <= 25 then
+            fill = colors.low
+        end
+        if battery_charging then 
+            fill = colors.charging 
+        end
+        gfx.rectfill(x + 2, y + 2, fill_width, body_height - 4, fill)
+    end
+end
 
 local function move(position, speed, limit, dt)
     position = position + speed * dt
@@ -51,15 +87,9 @@ function update(dt)
         sram_label = "SRAM: " .. sram_used // 1000 .. "K / " .. sram_total // 1000 .. "K"
         psram_label = "PSRAM: " .. psram_used // 1000 .. "K / " .. psram_total // 1000 .. "K"
 
-        local bat_lvl = sys.bat_lvl()
-        local bat_chrg = sys.bat_chrg()
-        if bat_lvl then
-            if bat_chrg then
-                bat_label = bat_lvl.."^"
-            else
-                bat_label = bat_lvl.."v"
-            end
-        end
+        local level = sys.bat_lvl()
+        battery_level = level and math.min(100, math.max(0, level))
+        battery_charging = sys.bat_chrg()
     end
 
     if dt > 0.01 then dt = 0.01 end
@@ -88,6 +118,6 @@ function update(dt)
     gfx.print(1, 1, fps_label)
     gfx.print(1, 160, sram_label)
     gfx.print(1, 170, psram_label)
-    gfx.print(296, 1, bat_label)
+    draw_battery()
     gfx.flip()
 end
