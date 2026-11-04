@@ -32,7 +32,7 @@ struct Startup {
 
 int load_boot_script(lua_State* state)
 {
-    luaL_openselectedlibs(state, LUA_GLIBK | LUA_LOADLIBK | LUA_MATHLIBK, 0);
+    luaL_openselectedlibs(state, LUA_GLIBK | LUA_LOADLIBK | LUA_MATHLIBK | LUA_STRLIBK | LUA_TABLIBK, 0);
 
     const auto& startup = *static_cast<const Startup*>(lua_touserdata(state, 1));
     for (size_t i = 0; i < startup.count; ++i) {
