@@ -5,6 +5,7 @@
 #include "gfx/gfx.hpp"
 #include "input/input.hpp"
 #include "lua/lua_vm.hpp"
+#include "storage/fs_lua.hpp"
 #include "storage/storage.hpp"
 #include "system/system.hpp"
 
@@ -39,7 +40,8 @@ extern "C" void app_main()
     }
 
     if (!lua_vm::start(lua_vm::ScriptKind::File, "/recovery/boot.lua",
-                       {gfx::lua_module(), tabos::system::lua_module(), tabos::input::lua_module()})) {
+                       {gfx::lua_module(), tabos::system::lua_module(), tabos::input::lua_module(),
+                        tabos::fs::lua_module()})) {
         ESP_LOGE("tabos", "Could not start the Lua VM task");
     }
 }

@@ -1,3 +1,4 @@
+local boot_error = ...
 local commands = {}
 local lines = {}
 local line = ""
@@ -205,6 +206,9 @@ end
 function init()
     refresh_status()
     shell.write("Recovery shell. Type help for commands.")
+    if boot_error ~= nil then
+        show_error(boot_error)
+    end
     draw()
 end
 
