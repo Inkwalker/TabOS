@@ -1,7 +1,7 @@
 local commands = {}
 local lines = {}
 local line = ""
-local app_update
+local app_update, app_deinit
 
 local row_height = 10
 local columns = math.max(1, math.floor((gfx.width - 2) / 6))
@@ -94,7 +94,7 @@ end
 local function run(args)
     local path = args[1]
     if not path then
-        shell.write("Usage: run <file.lua> [args...]")
+        shell.write("Usage: run <script[.lua]> [args...]")
         return
     end
     if path:sub(1, 1) ~= "/" then
@@ -106,6 +106,9 @@ local function run(args)
     local env = setmetatable({input = app_input}, {__index = _ENV})
     env._G = env
     local chunk, err = loadfile(path, "t", env)
+    if not chunk and path:sub(-4) ~= ".lua" and err:find("cannot open ", 1, true) == 1 then
+        chunk, err = loadfile(path .. ".lua", "t", env)
+    end
     if not chunk then
         error(err, 0)
     end
@@ -113,16 +116,20 @@ local function run(args)
 
     local start = rawget(env, "init")
     local tick = rawget(env, "update")
+    local finish = rawget(env, "deinit")
     if start ~= nil and type(start) ~= "function" then
         error("init must be a function", 0)
     end
     if tick ~= nil and type(tick) ~= "function" then
         error("update must be a function", 0)
     end
+    if finish ~= nil and type(finish) ~= "function" then
+        error("deinit must be a function", 0)
+    end
     if start then
         start()
     end
-    app_update = tick
+    app_update, app_deinit = tick, tick and finish
 end
 
 shell.register("run", run, "Start a Lua file. Esc returns to the shell.")
@@ -201,18 +208,21 @@ function update(dt)
     input.update()
     if app_update then
         -- Esc is row 1, column 1 on the Tab5 keyboard.
-        if input.keyp(1, 1) then
-            input.txt()
-            app_update = nil
-        else
+        if not input.keyp(1, 1) then
             local ok, err = pcall(app_update, dt)
             if ok then
                 return
             end
-            app_update = nil
-            input.txt()
             show_error(err)
         end
+        if app_deinit then
+            local ok, err = pcall(app_deinit)
+            if not ok then
+                show_error(err)
+            end
+        end
+        app_update, app_deinit = nil, nil
+        input.txt()
         refresh_status()
         draw()
         return
