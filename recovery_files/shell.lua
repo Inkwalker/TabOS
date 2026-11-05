@@ -93,12 +93,9 @@ end
 
 local function run(args)
     local path = args[1]
-    if not path then
-        shell.write("Usage: run <script[.lua]> [args...]")
+    if not path or path:sub(1, 1) ~= "/" then
+        shell.write('Usage: run "/absolute/path[.lua]" [args...]')
         return
-    end
-    if path:sub(1, 1) ~= "/" then
-        path = "/recovery/" .. path
     end
 
     -- The shell polls input once per frame, including while an app is running.
@@ -132,7 +129,7 @@ local function run(args)
     app_update, app_deinit = tick, tick and finish
 end
 
-shell.register("run", run, "Start a Lua file. Esc returns to the shell.")
+shell.register("run", run, "Start a Lua file by absolute path. Quote paths with spaces. Esc returns to the shell.")
 shell.register("help", function()
     local names = {}
     for name in pairs(commands) do
@@ -176,6 +173,13 @@ local function execute(text)
     end
 
     local args = {}
+    if name == "run" then
+        local path, remaining = rest:match('^%s*"([^"]*)"(.*)$')
+        if path and (remaining == "" or remaining:match("^%s")) then
+            args[1] = path
+            rest = remaining
+        end
+    end
     for word in rest:gmatch("%S+") do
         args[#args + 1] = word
     end

@@ -5,6 +5,7 @@
 #include "gfx/gfx.hpp"
 #include "input/input.hpp"
 #include "lua/lua_vm.hpp"
+#include "storage/storage.hpp"
 #include "system/system.hpp"
 
 extern "C" void app_main()
@@ -17,6 +18,8 @@ extern "C" void app_main()
     config.external_display_value = 0;
     M5.begin(config);
     M5.Display.setBrightness(128);
+
+    tabos::storage::init();
 
     if (!tabos::system::init()) {
         ESP_LOGW("tabos", "Could not initialize keyboard LED custom mode");

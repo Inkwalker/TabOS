@@ -1,7 +1,8 @@
 idf_component_register(SRCS "main.cpp" "lua/lua_vm.cpp" "gfx/gfx.cpp" "gfx/gfx_lua.cpp"
-                         "system/system_lua.cpp" "input/input_lua.cpp"
+                         "system/system_lua.cpp" "input/input_lua.cpp" "storage/storage.cpp"
                     INCLUDE_DIRS "."
-                    PRIV_REQUIRES esp_hw_support esp_mm esp_lcd esp_timer esp_psram fatfs m5unit_keyboard)
+                    PRIV_REQUIRES esp_hw_support esp_mm esp_lcd esp_timer esp_psram
+                                  esp_driver_sdmmc fatfs m5unit_keyboard)
 
 fatfs_create_rawflash_image(
     recovery

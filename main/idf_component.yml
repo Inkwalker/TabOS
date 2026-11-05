@@ -19,3 +19,4 @@ dependencies:
     git: https://github.com/m5stack/M5UnitUnified.git
     version: 68a8fa74959a3c18ffae5ce7f73ac61ecf651d4c
   espressif/lua: ^5.5.1
+  espressif/esp_tinyusb: ~2.4.0
