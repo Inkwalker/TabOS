@@ -6,6 +6,7 @@ TabOS installs these global tables before running the boot script.
 - [input](input.md) — touch, keyboard, and IMU
 - [sys](sys.md) — keyboard LEDs, system metrics, and clock
 - [fs](fs.md) — filesystem operations
+- [audio](audio.md) — wavetable voices
 - [.tap apps](apps.md) — directory structure, modules, and lifecycle hooks
 
 ## Standard Lua libraries
