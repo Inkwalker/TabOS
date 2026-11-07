@@ -12,7 +12,9 @@ local history = {}
 local history_limit = 3
 local history_index, history_draft
 local current_directory = "/"
-local app_update, app_deinit
+local raw_input = input
+local input = require("input_gate").new(raw_input)
+local runner
 
 local row_height = 10
 local columns = math.max(1, math.floor((gfx.width - 2) / 6))
@@ -105,75 +107,15 @@ local function run_script(path, args)
     end
 end
 
-local function make_app_require(root, env)
-    local loaded, loading = {}, {}
+runner = require("app_runner").new(raw_input, show_error)
 
-    return function(name)
-        assert(type(name) == "string" and name:match("^[%w_][%w_.%-]*$")
-            and not name:find("..", 1, true) and name:sub(-1) ~= ".",
-            "invalid module name")
-
-        if loaded[name] ~= nil then
-            return loaded[name]
-        end
-        if loading[name] then
-            error("circular app import: " .. name, 2)
-        end
-
-        local base = root .. "/lib/" .. name:gsub("%.", "/")
-        local file = base .. ".lua"
-        local info = fs.stat(file)
-        if not info or info.type ~= "file" then
-            file = base .. "/init.lua"
-            info = fs.stat(file)
-            if not info or info.type ~= "file" then
-                error("app module not found: " .. name, 2)
-            end
-        end
-
-        local chunk = paths.check(loadfile(file, "t", env))
-        loading[name] = true
-        local ok, result = pcall(chunk, name, file)
-        loading[name] = nil
-
-        if not ok then
-            error(result, 0)
-        end
-        if result == nil then
-            result = true
-        end
-        loaded[name] = result
-        return result
-    end, loaded
+function shell.run_app(path, args)
+    runner:launch(path, args)
+    input.reset()
 end
 
 local function run_app(path, args)
-    -- The shell polls input once per frame, including while an app is running.
-    local app_input = setmetatable({update = function() end}, {__index = input})
-    local env = setmetatable({input = app_input}, {__index = _ENV})
-    env._G = env
-    local app_require, app_loaded = make_app_require(path, env)
-    env.require = app_require
-    env.package = {loaded = app_loaded}
-    local chunk = paths.check(loadfile(path .. "/app.lua", "t", env))
-    chunk(table.unpack(args))
-
-    local start = rawget(env, "init")
-    local tick = rawget(env, "update")
-    local finish = rawget(env, "deinit")
-    if start ~= nil and type(start) ~= "function" then
-        error("init must be a function", 0)
-    end
-    if tick ~= nil and type(tick) ~= "function" then
-        error("update must be a function", 0)
-    end
-    if finish ~= nil and type(finish) ~= "function" then
-        error("deinit must be a function", 0)
-    end
-    if start then
-        start()
-    end
-    app_update, app_deinit = tick, tick and finish
+    shell.run_app(path, args)
 end
 
 local command_directory = "/rec/bin"
@@ -222,7 +164,7 @@ shell.register("help", function()
         shell.write(description and (name .. " - " .. description) or name)
     end
     shell.write(".lua - Run a script and print its results.")
-    shell.write(".tap - Launch app.lua. Press Esc to exit.")
+    shell.write(".tap - Launch app.lua. Ctrl+Esc force-closes.")
     shell.write("Quote paths with spaces.")
 end, "List commands.")
 shell.register("clear", function()
@@ -433,23 +375,10 @@ end
 
 function update(dt)
     input.update()
-    if app_update then
-        -- Esc is row 1, column 1 on the Tab5 keyboard.
-        if not input.keyp(1, 1) then
-            local ok, err = pcall(app_update, dt)
-            if ok then
-                return
-            end
-            show_error(err)
-        end
-        if app_deinit then
-            local ok, err = pcall(app_deinit)
-            if not ok then
-                show_error(err)
-            end
-        end
-        app_update, app_deinit = nil, nil
-        input.txt()
+    if runner:active() then
+        runner:update(dt)
+        if runner:active() then return end
+        input.reset()
         caret_elapsed = 0
         refresh_status()
         advance_output(0)
@@ -485,8 +414,13 @@ function update(dt)
                     table.remove(history, 1)
                 end
             end
+            local launches = runner.launches
             execute(submitted)
-            if app_update then
+            if runner.launches ~= launches then
+                if not runner:active() then
+                    advance_output(0)
+                    draw()
+                end
                 return
             end
         elseif char == "\b" then

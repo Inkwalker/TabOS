@@ -18,7 +18,9 @@ Replace `PORT` with your device's serial port. Dependencies are resolved by the 
 
 ## Running Lua apps
 
-The SD card is mounted at `/sd` and exposed over USB MTP. Copy examples from `apps/` onto the card, then enter their paths in the shell to run them. `.lua` files run as scripts; `.tap` directories launch their `app.lua`. Press **Esc** to exit an app; enter `help` for shell commands.
+The SD card is mounted at `/sd` and exposed over USB MTP. Copy examples from `apps/` onto the card, then enter their paths in the shell to run them. `.lua` files run as scripts; `.tap` directories launch their `app.lua`. **Ctrl+Esc** force-closes a managed app between callbacks. Enter `help` for shell commands. See [.tap structure and hooks](docs/apps.md).
+
+Use `edit <path>` in recovery to edit or create an ASCII text file on `/sd`, including quoted or relative paths. The editor supports files up to 64 KiB.
 
 At boot, TabOS tries `/sd/system.lua` and falls back to the bundled recovery shell if it is missing or fails to load. Hold **Del** during startup to force recovery.
 

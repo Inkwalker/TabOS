@@ -15,6 +15,7 @@ function init()
 end
 
 function update(dt)
+    if input.keyp(1, 1) then os.exit(); return end
     rules.update(game, dt)
     background_time = background_time + dt
     frame_time = frame_time + dt

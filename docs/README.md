@@ -6,6 +6,7 @@ TabOS installs these global tables before running the boot script.
 - [input](input.md) — touch, keyboard, and IMU
 - [sys](sys.md) — keyboard LEDs, system metrics, and clock
 - [fs](fs.md) — filesystem operations
+- [.tap apps](apps.md) — directory structure, modules, and lifecycle hooks
 
 ## Standard Lua libraries
 
@@ -19,6 +20,17 @@ The firmware opens these libraries before running the boot script.
 - `string`
 - `table`
 
-## Startup hooks
+## System startup hooks
 
-The firmware calls an optional global `init()` once after loading the startup script, then calls an optional `update(dt)` at a target rate of 60 Hz. `dt` is elapsed time in seconds since the previous tick.
+The bundled `/rec/boot.lua` loads `/sd/system.lua`, falling back to
+`/rec/system.lua` if the SD script is missing or its top-level chunk fails.
+Holding Del during boot forces recovery.
+
+After the boot script finishes, the firmware uses the system's global hooks:
+
+| Hook | Behavior |
+| --- | --- |
+| `init()` | Optional; called once after startup loading. |
+| `update(dt)` | Optional; called at a target rate of 60 Hz. `dt` is elapsed seconds since the previous tick. Without it, the Lua task ends after initialization. |
+
+Managed [.tap apps](apps.md) have separate hooks dispatched by the recovery shell.

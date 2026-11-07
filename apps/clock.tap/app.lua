@@ -81,6 +81,7 @@ local function draw_clock()
 end
 
 function update(dt)
+    if input.keyp(1, 1) then os.exit(); return end
     elapsed = elapsed + dt
     if elapsed < frame_interval then
         return
