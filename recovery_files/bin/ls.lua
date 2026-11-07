@@ -9,7 +9,7 @@ return {
         local entries = {}
         if path == "/" then
             -- ESP-IDF mounts these volumes separately and has no directory at /.
-            for _, name in ipairs({"recovery", "sd"}) do
+            for _, name in ipairs({"rec", "sd"}) do
                 if fs.stat("/" .. name) then
                     entries[#entries + 1] = name
                 end

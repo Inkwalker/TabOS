@@ -1,4 +1,4 @@
-package.path = "/recovery/?.lua;" .. package.path
+package.path = "/rec/?.lua;" .. package.path
 
 local boot_error = ...
 local commands = {}
@@ -147,7 +147,7 @@ local function run_app(path, args)
     app_update, app_deinit = tick, tick and finish
 end
 
-local command_directory = "/recovery/bin"
+local command_directory = "/rec/bin"
 
 -- An external script returns metadata and a handler without running the command.
 -- Path handlers receive the working directory followed by resolved operands.

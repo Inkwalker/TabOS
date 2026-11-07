@@ -20,7 +20,7 @@ else
 end
 
 if not sd_started then
-    local chunk, err = loadfile("/recovery/system.lua", "t", _ENV)
+    local chunk, err = loadfile("/rec/system.lua", "t", _ENV)
     if not chunk then
         error(err, 0)
     end

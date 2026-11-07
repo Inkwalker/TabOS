@@ -33,13 +33,13 @@ extern "C" void app_main()
 
     const esp_vfs_fat_mount_config_t recovery_config = VFS_FAT_MOUNT_DEFAULT_CONFIG();
     const esp_err_t recovery_status =
-        esp_vfs_fat_spiflash_mount_ro("/recovery", "recovery", &recovery_config);
+        esp_vfs_fat_spiflash_mount_ro("/rec", "recovery", &recovery_config);
     if (recovery_status != ESP_OK) {
-        ESP_LOGE("tabos", "Could not mount /recovery: %s", esp_err_to_name(recovery_status));
+        ESP_LOGE("tabos", "Could not mount /rec: %s", esp_err_to_name(recovery_status));
         return;
     }
 
-    if (!lua_vm::start(lua_vm::ScriptKind::File, "/recovery/boot.lua",
+    if (!lua_vm::start(lua_vm::ScriptKind::File, "/rec/boot.lua",
                        {gfx::lua_module(), tabos::system::lua_module(), tabos::input::lua_module(),
                         tabos::fs::lua_module()})) {
         ESP_LOGE("tabos", "Could not start the Lua VM task");
