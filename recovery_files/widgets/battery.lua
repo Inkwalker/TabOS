@@ -21,15 +21,16 @@ function battery.refresh()
 end
 
 function battery.draw(x, y, color)
-    local body_width, body_height = 16, 8
+    local body_width, body_height = 16, 7
 
     gfx.rectfill(x + 1, y + 1, body_width - 1, body_height - 1, colors.background)
     gfx.rect(x, y, body_width, body_height, color)
-    gfx.rectfill(x - 1, y + 2, 1, 4, color)
+    gfx.rectfill(x - 1, y + 2, 1, body_height - 4, color)
     gfx.rectfill(x + 2, y + 2, body_width - 4, body_height - 4, colors.track)
 
     if level == nil then
-        gfx.line(x + 2, y + 4, x + body_width - 2, y + 4, color)
+        local middle_y = y + math.floor(body_height / 2)
+        gfx.line(x + 2, middle_y, x + body_width - 2, middle_y, color)
     elseif level > 0 then
         local fill_width = math.ceil((body_width - 4) * level / 100)
         local fill = colors.normal

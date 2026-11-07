@@ -3,6 +3,10 @@ package.path = "/rec/?.lua;" .. package.path
 local boot_error = ...
 local commands = {}
 local lines = {}
+local pending_lines = {}
+local pending_first, pending_last = 1, 0
+local output_interval = 0.05
+local output_elapsed = output_interval
 local line = ""
 local history = {}
 local history_limit = 3
@@ -13,12 +17,16 @@ local app_update, app_deinit
 local row_height = 10
 local columns = math.max(1, math.floor((gfx.width - 2) / 6))
 local output_rows = math.max(1, math.floor((gfx.height - 2) / row_height) - 2)
+local output_history_pages = 3
+local view_end -- nil follows the latest output and shows the prompt.
 
 local clock = require("widgets.clock")
 local battery = require("widgets.battery")
 local paths = require("paths")
 
 local text_color = gfx.rgb(0, 255, 0)
+local error_color = gfx.rgb(255, 0, 0)
+local panel_color = gfx.rgb(12, 19, 29)
 
 local status_interval = 0.5
 local status_elapsed = 0
@@ -34,15 +42,36 @@ end
 
 shell = {}
 
-function shell.write(message)
+function shell.write(message, color)
     for row in (tostring(message) .. "\n"):gmatch("([^\n]*)\n") do
         for start = 1, math.max(1, #row), columns do
-            lines[#lines + 1] = row:sub(start, start + columns - 1)
-            if #lines > output_rows then
-                table.remove(lines, 1)
-            end
+            pending_last = pending_last + 1
+            pending_lines[pending_last] = {text = row:sub(start, start + columns - 1), color = color or text_color}
         end
     end
+end
+
+local function advance_output(dt)
+    output_elapsed = math.min(output_interval, output_elapsed + dt)
+    if pending_first > pending_last or output_elapsed < output_interval then
+        return false
+    end
+
+    -- Reveal at most one row per frame, even after a slow frame.
+    lines[#lines + 1] = pending_lines[pending_first]
+    pending_lines[pending_first] = nil
+    pending_first = pending_first + 1
+    if pending_first > pending_last then
+        pending_first, pending_last = 1, 0
+    end
+    if #lines > output_rows * (output_history_pages + 1) then
+        table.remove(lines, 1)
+        if view_end then
+            view_end = math.max(1, view_end - 1)
+        end
+    end
+    output_elapsed = 0
+    return true
 end
 
 -- Commands receive an array of whitespace-separated arguments.
@@ -55,7 +84,7 @@ function shell.register(name, handler, description)
 end
 
 local function show_error(err)
-    shell.write("Error: " .. (type(err) == "string" and err or type(err)))
+    shell.write("Error: " .. (type(err) == "string" and err or type(err)), error_color)
 end
 
 local function print_to_shell(...)
@@ -198,12 +227,16 @@ shell.register("help", function()
 end, "List commands.")
 shell.register("clear", function()
     lines = {}
+    view_end = nil
+    pending_lines = {}
+    pending_first, pending_last = 1, 0
+    output_elapsed = output_interval
 end, "Clear the screen.")
 shell.register("time", function(args)
     local hour, minute = (args[1] or ""):match("^(%d%d):(%d%d)$")
     hour, minute = tonumber(hour), tonumber(minute)
     if #args ~= 1 or not hour or hour > 23 or minute > 59 then
-        shell.write("Usage: time HH:MM (24-hour UTC)")
+        shell.write("Usage: time HH:MM (24-hour UTC)", error_color)
         return
     end
 
@@ -259,7 +292,7 @@ local function execute(text)
     end
     local name, rest = take_word(text)
     if not name then
-        shell.write("Error: invalid quoted path")
+        show_error("invalid quoted path")
         return
     end
     local extension = name:sub(-4):lower()
@@ -267,7 +300,7 @@ local function execute(text)
     if runner then
         local args = parse_paths(rest)
         if not args then
-            shell.write("Error: invalid quoted path")
+            show_error("invalid quoted path")
             return
         end
         local ok, err = pcall(runner, paths.resolve_path(name, current_directory), args)
@@ -283,7 +316,7 @@ local function execute(text)
             show_error(external)
             return
         elseif not external then
-            shell.write("Unknown command: " .. name)
+            shell.write("Unknown command: " .. name, error_color)
             return
         end
         command = external
@@ -293,11 +326,11 @@ local function execute(text)
     if command.operands then
         args = parse_paths(rest)
         if not args then
-            shell.write("Error: invalid quoted path")
+            show_error("invalid quoted path")
             return
         end
         if #args > command.count or (#args ~= command.count and command.operands:sub(1, 1) ~= "[") then
-            shell.write("Usage: " .. name .. " " .. command.operands)
+            shell.write("Usage: " .. name .. " " .. command.operands, error_color)
             return
         end
         for i, path in ipairs(args) do
@@ -326,6 +359,21 @@ end
 
 local function navigate_history()
     -- Up and Down are in column 12 of rows 4 and 5 on the Tab5 keyboard.
+    -- Ctrl is row 5, column 1; reserve Ctrl+arrows for output pages.
+    if input.key(5, 1) then
+        local previous_end = view_end
+        -- Recompute page boundaries from the latest output after rows arrive.
+        local page = view_end and math.max(1, math.floor((#lines - view_end) / output_rows)) or 0
+        if input.keyp(4, 12) then
+            page = math.min(page + 1, math.floor((#lines - 1) / output_rows))
+        elseif input.keyp(5, 12) then
+            page = math.max(0, page - 1)
+        else
+            return false
+        end
+        view_end = page > 0 and (#lines - page * output_rows) or nil
+        return previous_end ~= view_end
+    end
     if input.keyp(4, 12) and #history > 0 then
         if not history_index then
             history_draft = line
@@ -335,6 +383,7 @@ local function navigate_history()
         end
         history_index = history_index - 1
         line = history[history_index]
+        view_end = nil
         return true
     elseif input.keyp(5, 12) and history_index then
         history_index = history_index + 1
@@ -344,6 +393,7 @@ local function navigate_history()
         else
             line = history[history_index]
         end
+        view_end = nil
         return true
     end
     return false
@@ -351,14 +401,23 @@ end
 
 local function draw()
     gfx.cls()
-    gfx.print(1, 1, "Recovery Terminal", text_color)
+    gfx.rectfill(0, 0, gfx.width, 9, panel_color)
+    gfx.print(1, 1, view_end and "Recovery Terminal [history]" or "Recovery Terminal", text_color)
     clock.draw(gfx.width - 50, 1, text_color)
     battery.draw(gfx.width - 17, 1, text_color)
-    for row, text in ipairs(lines) do
-        gfx.print(1, 5 + row * row_height, text, text_color)
+    local last = view_end or #lines
+    local first = math.max(1, last - output_rows + 1)
+    local row_offset = view_end and (output_rows - (last - first + 1)) or 0
+    for index = first, last do
+        local row = row_offset + index - first + 1
+        local entry = lines[index]
+        gfx.print(1, 5 + row * row_height, entry.text, entry.color)
     end
-    local prompt = prompt_text() .. (caret_elapsed < caret_interval and "_" or " ")
-    gfx.print(1, 5 + (#lines + 1) * row_height, prompt:sub(-columns), text_color)
+    if not view_end then
+        local prompt = prompt_text() .. (caret_elapsed < caret_interval and "_" or " ")
+        local visible_rows = math.min(#lines, output_rows)
+        gfx.print(1, 5 + (visible_rows + 1) * row_height, prompt:sub(-columns), text_color)
+    end
     gfx.flip()
 end
 
@@ -368,6 +427,7 @@ function init()
     if boot_error ~= nil then
         show_error(boot_error)
     end
+    advance_output(0)
     draw()
 end
 
@@ -392,24 +452,27 @@ function update(dt)
         input.txt()
         caret_elapsed = 0
         refresh_status()
+        advance_output(0)
         draw()
         return
     end
 
     status_elapsed = status_elapsed + dt
     local status_changed = status_elapsed >= status_interval and refresh_status()
+    local output_changed = advance_output(dt)
     local history_changed = navigate_history()
     local text = input.txt()
     if text == "" then
         local caret_was_visible = caret_elapsed < caret_interval
         caret_elapsed = history_changed and 0 or (caret_elapsed + dt) % (2 * caret_interval)
         local caret_is_visible = caret_elapsed < caret_interval
-        if history_changed or status_changed or caret_was_visible ~= caret_is_visible then
+        if output_changed or history_changed or status_changed or caret_was_visible ~= caret_is_visible then
             draw()
         end
         return
     end
     caret_elapsed = 0
+    view_end = nil
     for char in text:gmatch(".") do
         if char == "\n" or char == "\r" then
             shell.write(prompt_text())
@@ -432,5 +495,6 @@ function update(dt)
             line = line .. char
         end
     end
+    advance_output(0)
     draw()
 end
