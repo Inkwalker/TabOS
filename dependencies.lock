@@ -36,7 +36,7 @@ dependencies:
       require: private
       version: '>=5.0'
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     targets:
     - esp32s2
@@ -111,7 +111,7 @@ dependencies:
     component_hash: e97781f48f14c6c65b90ba7cfe27deb3ff7eae8ec61a60040ab3615d166c82f4
     dependencies: []
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 0.2.36
   m5stack/m5unified:
@@ -128,9 +128,11 @@ dependencies:
 direct_dependencies:
 - espressif/esp_tinyusb
 - espressif/lua
+- espressif/tinyusb
 - idf
 - m5stack/M5UnitUnified
+- m5stack/m5gfx
 - m5stack/m5unified
-manifest_hash: 7a8f0015b14fbc9c740800fca556cbf31a2582d317a46654246dfb2005395ce1
+manifest_hash: a50d53524fddd63443bebb189cb7f9774580210072f6fb504324f9cc5550bf18
 target: esp32p4
 version: 2.0.0
