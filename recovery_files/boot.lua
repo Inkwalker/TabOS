@@ -6,7 +6,11 @@ sys.set_led(2, 0, 0, 0)
 
 local sd_path = "/sd/system.lua"
 local sd_started, sd_error = false, nil
-if not fs.stat("/sd") then
+input.update()
+-- Del is row 1, column 14 on the Tab5 keyboard.
+if input.key(1, 14) then
+    sd_error = "Safe boot requested"
+elseif not fs.stat("/sd") then
     sd_error = "SD card is not mounted"
 elseif not fs.stat(sd_path) then
     sd_error = "Missing " .. sd_path
