@@ -2,6 +2,7 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_vfs_fat.h"
+#include "audio/audio.hpp"
 #include "gfx/gfx.hpp"
 #include "input/input.hpp"
 #include "lua/lua_vm.hpp"
@@ -15,10 +16,15 @@ extern "C" void app_main()
     config.internal_imu = true;
     config.internal_rtc = true;
     config.internal_mic = false;
-    config.internal_spk = false;
+    // Configure the Tab5 speaker pins and codec callback before audio::init().
+    config.internal_spk = true;
     config.external_display_value = 0;
     M5.begin(config);
     M5.Display.setBrightness(128);
+
+    if (!tabos::audio::init()) {
+        ESP_LOGW("tabos", "Could not initialize audio");
+    }
 
     tabos::storage::init();
 
@@ -41,7 +47,7 @@ extern "C" void app_main()
 
     if (!lua_vm::start(lua_vm::ScriptKind::File, "/rec/boot.lua",
                        {gfx::lua_module(), tabos::system::lua_module(), tabos::input::lua_module(),
-                        tabos::fs::lua_module()})) {
+                        tabos::fs::lua_module(), tabos::audio::lua_module()})) {
         ESP_LOGE("tabos", "Could not start the Lua VM task");
     }
 }

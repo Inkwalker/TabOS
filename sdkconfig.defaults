@@ -14,9 +14,9 @@ CONFIG_SPIRAM_USE_MALLOC=y
 # Keep firmware code in flash rather than copying it into PSRAM.
 # CONFIG_SPIRAM_XIP_FROM_PSRAM is not set
 
-# Keep logs on UART0 and mirror them to built-in USB Serial/JTAG in debug builds.
+# MTP owns USB-C; keep logs on UART0 and leave Serial/JTAG's audio pins free.
 CONFIG_ESP_CONSOLE_UART_DEFAULT=y
-CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 CONFIG_FREERTOS_HZ=120
 

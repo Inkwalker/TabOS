@@ -10,6 +10,7 @@
 #endif
 
 #if TABOS_USB_MTP
+#include "hal/usb_serial_jtag_ll.h"
 #include "hal/usb_wrap_ll.h"
 #include "tinyusb.h"
 #include "tinyusb_default_config.h"
@@ -56,11 +57,15 @@ esp_err_t start_mtp()
     tinyusb_config_t usb_config = TINYUSB_DEFAULT_CONFIG(usb_event);
     usb_config.port = TINYUSB_PORT_FULL_SPEED_0;
 
-    // The Tab5 USB-C connector is wired to PHY 0 (GPIO24/25).
+    // MTP uses PHY 0 (GPIO24/25), moving Serial/JTAG to PHY 1.
+    // Disable its pads first: GPIO26/27 carry the Tab5's audio data/bit clock.
+    const bool serial_jtag_pads_enabled = usb_serial_jtag_ll_phy_is_pad_enabled();
+    usb_serial_jtag_ll_phy_enable_pad(false);
     usb_wrap_ll_phy_select(&USB_WRAP, 0);
     status = tinyusb_driver_install(&usb_config);
     if (status != ESP_OK) {
         usb_wrap_ll_phy_select(&USB_WRAP, 1);
+        usb_serial_jtag_ll_phy_enable_pad(serial_jtag_pads_enabled);
         tinyusb_mtp_unregister_storage(storage);
         tinyusb_mtp_uninstall_driver();
     }
