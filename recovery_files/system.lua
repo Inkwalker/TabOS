@@ -58,26 +58,76 @@ local function show_error(err)
     shell.write("Error: " .. (type(err) == "string" and err or type(err)))
 end
 
-local function run(args)
-    local path = args[1]
-    if not path or path == "" then
-        shell.write('Usage: run "path[.lua]" [args...]')
-        return
+local function print_to_shell(...)
+    local values = table.pack(...)
+    for i = 1, values.n do
+        values[i] = tostring(values[i])
     end
-    path = paths.resolve_path(path, current_directory)
+    shell.write(table.concat(values, "    ", 1, values.n))
+end
 
+local function run_script(path, args)
+    local env = setmetatable({print = print_to_shell}, {__index = _ENV})
+    env._G = env
+    local chunk = paths.check(loadfile(path, "t", env))
+    local results = table.pack(chunk(table.unpack(args)))
+    if results.n > 0 then
+        print_to_shell(table.unpack(results, 1, results.n))
+    end
+end
+
+local function make_app_require(root, env)
+    local loaded, loading = {}, {}
+
+    return function(name)
+        assert(type(name) == "string" and name:match("^[%w_][%w_.%-]*$")
+            and not name:find("..", 1, true) and name:sub(-1) ~= ".",
+            "invalid module name")
+
+        if loaded[name] ~= nil then
+            return loaded[name]
+        end
+        if loading[name] then
+            error("circular app import: " .. name, 2)
+        end
+
+        local base = root .. "/lib/" .. name:gsub("%.", "/")
+        local file = base .. ".lua"
+        local info = fs.stat(file)
+        if not info or info.type ~= "file" then
+            file = base .. "/init.lua"
+            info = fs.stat(file)
+            if not info or info.type ~= "file" then
+                error("app module not found: " .. name, 2)
+            end
+        end
+
+        local chunk = paths.check(loadfile(file, "t", env))
+        loading[name] = true
+        local ok, result = pcall(chunk, name, file)
+        loading[name] = nil
+
+        if not ok then
+            error(result, 0)
+        end
+        if result == nil then
+            result = true
+        end
+        loaded[name] = result
+        return result
+    end, loaded
+end
+
+local function run_app(path, args)
     -- The shell polls input once per frame, including while an app is running.
     local app_input = setmetatable({update = function() end}, {__index = input})
     local env = setmetatable({input = app_input}, {__index = _ENV})
     env._G = env
-    local chunk, err = loadfile(path, "t", env)
-    if not chunk and path:sub(-4) ~= ".lua" and err:find("cannot open ", 1, true) == 1 then
-        chunk, err = loadfile(path .. ".lua", "t", env)
-    end
-    if not chunk then
-        error(err, 0)
-    end
-    chunk(table.unpack(args, 2))
+    local app_require, app_loaded = make_app_require(path, env)
+    env.require = app_require
+    env.package = {loaded = app_loaded}
+    local chunk = paths.check(loadfile(path .. "/app.lua", "t", env))
+    chunk(table.unpack(args))
 
     local start = rawget(env, "init")
     local tick = rawget(env, "update")
@@ -121,7 +171,6 @@ local function load_command(name)
     return command
 end
 
-shell.register("run", run, "Start a Lua file by relative or absolute path. Quote paths with spaces. Esc returns to the shell.")
 shell.register("help", function()
     local names, descriptions = {}, {}
     for name, command in pairs(commands) do
@@ -143,6 +192,9 @@ shell.register("help", function()
         local description = descriptions[name]
         shell.write(description and (name .. " - " .. description) or name)
     end
+    shell.write(".lua - Run a script and print its results.")
+    shell.write(".tap - Launch app.lua. Press Esc to exit.")
+    shell.write("Quote paths with spaces.")
 end, "List commands.")
 shell.register("clear", function()
     lines = {}
@@ -168,6 +220,20 @@ shell.register("cd", function(_, path)
 end, "Change directory. With no argument, go to /.")
 commands.cd.operands, commands.cd.count = "[directory]", 1
 
+local function take_word(rest)
+    local quote = rest:sub(1, 1)
+    if quote ~= '"' and quote ~= "'" then
+        return rest:match("^(%S+)(.*)$")
+    end
+    local close = rest:find(quote, 2, true)
+    if close and close > 2 then
+        local remaining = rest:sub(close + 1)
+        if remaining == "" or remaining:match("^%s") then
+            return rest:sub(2, close - 1), remaining
+        end
+    end
+end
+
 local function parse_paths(rest)
     local args = {}
     while true do
@@ -175,27 +241,39 @@ local function parse_paths(rest)
         if rest == "" then
             return args
         end
-        local path, remaining
-        local quote = rest:sub(1, 1)
-        if quote == '"' or quote == "'" then
-            local close = rest:find(quote, 2, true)
-            if close then
-                path, remaining = rest:sub(2, close - 1), rest:sub(close + 1)
-            end
-            if not path or path == "" or (remaining ~= "" and not remaining:match("^%s")) then
-                return nil
-            end
-        else
-            path, remaining = rest:match("^(%S+)(.*)$")
+        local path, remaining = take_word(rest)
+        if not path then
+            return nil
         end
         args[#args + 1] = path
         rest = remaining
     end
 end
 
+local file_runners = {[".lua"] = run_script, [".tap"] = run_app}
+
 local function execute(text)
-    local name, rest = text:match("^%s*(%S+)(.*)$")
+    text = text:match("^%s*(.*)$")
+    if text == "" then
+        return
+    end
+    local name, rest = take_word(text)
     if not name then
+        shell.write("Error: invalid quoted path")
+        return
+    end
+    local extension = name:sub(-4):lower()
+    local runner = file_runners[extension]
+    if runner then
+        local args = parse_paths(rest)
+        if not args then
+            shell.write("Error: invalid quoted path")
+            return
+        end
+        local ok, err = pcall(runner, paths.resolve_path(name, current_directory), args)
+        if not ok then
+            show_error(err)
+        end
         return
     end
     local command = commands[name]
@@ -227,13 +305,6 @@ local function execute(text)
         end
     else
         args = {}
-        if name == "run" then
-            local path, remaining = rest:match('^%s*"([^"]*)"(.*)$')
-            if path and (remaining == "" or remaining:match("^%s")) then
-                args[1] = path
-                rest = remaining
-            end
-        end
         for word in rest:gmatch("%S+") do
             args[#args + 1] = word
         end

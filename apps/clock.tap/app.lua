@@ -1,4 +1,3 @@
--- Run from the recovery shell with: run clock.lua
 local glyphs = {
     ["0"] = {"111", "101", "101", "101", "111"},
     ["1"] = {"001", "001", "001", "001", "001"},
