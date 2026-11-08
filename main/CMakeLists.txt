@@ -1,4 +1,5 @@
 idf_component_register(SRCS "main.cpp" "lua/lua_vm.cpp" "gfx/gfx.cpp" "gfx/gfx_lua.cpp"
+                        "gfx/sprite.cpp"
                         "system/system_lua.cpp" "input/input_lua.cpp"
                         "storage/storage.cpp" "storage/fs_lua.cpp"
                         "audio/audio.cpp" "audio/audio_lua.cpp" "audio/sound.cpp"

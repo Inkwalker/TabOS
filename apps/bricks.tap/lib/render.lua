@@ -67,7 +67,7 @@ local function draw_particles(particles)
     end
 end
 
-return function(game, fps, background_time)
+return function(game, fps_label, background_time)
     draw_background(background_time)
     draw_particles(game.particles)
     draw_ripples(game.destroyed_bricks)
@@ -80,7 +80,6 @@ return function(game, fps, background_time)
         gfx.line(segment.x, segment.y, segment.to_x, segment.to_y, color)
     end
     gfx.print(config.left + 4, 8, ("BRICKS   Lives: %d   Score: %d"):format(game.lives, game.score), white)
-    local fps_label = "FPS: " .. (fps or "--")
     gfx.print(config.right - 4 - #fps_label * 6, 8, fps_label, white)
     local border_color = game.border_flash > 0 and config.colors[3] or config.border_color
     gfx.line(config.left, config.top, config.right, config.top, border_color)
@@ -96,8 +95,7 @@ return function(game, fps, background_time)
             local direction = row % 2 == 0 and -1 or 1
             x = x + direction * math.floor(config.width * (1 - progress)^3)
         end
-        gfx.rectfill(x, brick.bottom, config.brick_width, 2, shadow)
-        gfx.rectfill(x, brick.y, config.brick_width, config.brick_height, brick.color)
+        gfx.spr(brick.sprite, x, brick.y)
     end
     for _, brick in ipairs(game.destroyed_bricks) do
         if brick.age < config.shrink_duration then
@@ -109,15 +107,13 @@ return function(game, fps, background_time)
             gfx.rect(x, y, w, h, brick.color)
         end
     end
-    local paddle_color = game.paddle_flash > 0 and config.colors[3] or config.colors[4]
     local flash_fraction = game.paddle_flash / config.flash_duration
     local shake = math.floor(flash_fraction * math.cos((1 - flash_fraction) * 4 * math.pi) + 0.5)
-    local draw_x = math.max(config.left, math.min(config.right - config.paddle_width, math.floor(game.paddle_x) + shake))
-    gfx.rectfill(draw_x, config.paddle_y, config.paddle_width, config.paddle_height, paddle_color)
+    gfx.spr(config.paddle_sprite, math.floor(game.paddle_x), config.paddle_y + shake, config.paddle_transparent)
     if game.state == "ready" or game.state == "playing" then
         local x, y = math.floor(game.ball_x), math.floor(game.ball_y)
         gfx.circfill(x, y + 2, config.radius, shadow)
-        gfx.circfill(x, y, config.radius, white)
+        gfx.circfill(x, y, config.radius, game.ball_flash > 0 and config.ball_flash_color or white)
     end
 
     local message

@@ -54,9 +54,13 @@ function Runner:launch(path, args)
     self.launches = self.launches + 1
     local app = {input = Gate.new(self.input)}
     app.input.update = function() end -- Hardware is polled once by the shell.
-    local env = setmetatable({input = app.input, os = {exit = function()
-        app.exit_requested = true
-    end}}, {__index = _ENV})
+    local env = setmetatable({input = app.input, os = {
+        exit = function() app.exit_requested = true end,
+        path = function(relative_path)
+            assert(type(relative_path) == "string", "expected a path string")
+            return paths.resolve_path(relative_path, path)
+        end,
+    }}, {__index = _ENV})
     app.env, env._G = env, env
     local app_require, app_loaded = make_app_require(path, env)
     env.require = app_require

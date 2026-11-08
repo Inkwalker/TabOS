@@ -47,11 +47,26 @@ per launch in `package.loaded`; a module returning `nil` is cached as `true`.
 Circular imports raise an error. This loader does not fall back to system modules
 or use `package.path`.
 
-Each launch has its own globals, `_G`, module cache, and `os.exit()` function.
+Each launch has its own globals, `_G`, module cache, and `os` table.
 The environment inherits system globals, including `gfx`, `sys`, `fs`, and Lua
 libraries; shared tables remain shared, so this is not a security sandbox.
-Launching does not change the shell's working directory. Use explicit filesystem
-paths for assets; they are not automatically resolved relative to the app.
+
+The app's `os` table is available in modules and hooks. It provides these
+functions instead of the standard Lua `os` library:
+
+| API | Behavior |
+| --- | --- |
+| `os.exit()` | Request app closure. |
+| `os.path(path)` | Resolve a path relative to the app directory, normalizing `.` and `..`. Absolute paths stay absolute; an empty string returns the app directory. |
+
+Pass the resolved path to file APIs:
+
+```lua
+local ball = assert(gfx.load_sprite(os.path("spr/ball.png")))
+```
+
+Launching does not change the shell's working directory. Paths passed directly
+to file APIs are not automatically resolved relative to the app.
 
 ## App hooks
 
@@ -71,7 +86,6 @@ Apps draw their own frames and call `gfx.flip()` to present them.
 Call `os.exit()` to request app closure.
 Ctrl+Esc forces app termination.
 Cleanup cannot veto exit; cleanup errors are reported and the shell is restored.
-The app's `os` table provides only `exit`, not the standard Lua `os` library.
 
 See the [system startup hooks](README.md#system-startup-hooks) for custom
 systems, and [bricks.tap](../apps/bricks.tap/app.lua) for a modular example.

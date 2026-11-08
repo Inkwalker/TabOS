@@ -21,5 +21,14 @@ Drawing uses a 320 × 180 landscape canvas with origin `(0, 0)` at the top left.
 | `gfx.rectfill(x, y, width, height [, color])` | Draw a filled rectangle from the top-left corner. |
 | `gfx.line(x1, y1, x2, y2 [, color])` | Draw a line including both endpoints. |
 | `gfx.print(x, y, text [, color])` | Draw a string starting at `(x, y)` with automatic wrapping disabled. |
+| `gfx.load_sprite(path)` | Load a PNG at its native dimensions. Return a sprite object, or `nil, error` on failure. |
+| `gfx.spr(sprite, x, y [, transparent])` | Draw a loaded sprite at `(x, y)`. Optional `transparent` is an RGB565 color key to skip. |
+| `sprite.width`, `sprite.height` | Read-only sprite dimensions in pixels. |
+| `sprite:pget(x, y)` | Read a sprite pixel as RGB565, relative to its top-left corner `(0, 0)`. |
+| `sprite:close()` | Release sprite memory. Closing more than once is safe. |
 
 Circle radii are integers in 0–32767, ellipse radii in 0–512, and rectangle dimensions in 1–32767. Drawing and setter calls return no values.
+
+Sprite dimensions must each be in 1–32767. Pixel storage requires approximately `width * height * 2` bytes, using PSRAM with internal RAM as a fallback. PNG transparency is flattened against black; sprites do not retain alpha.
+
+Sprite memory is released by garbage collection, when the Lua VM closes, or explicitly with `sprite:close()` or a Lua `<close>` local. Drawing or reading dimensions or pixels after closing raises an error.

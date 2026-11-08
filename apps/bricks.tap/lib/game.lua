@@ -1,4 +1,5 @@
 local config = require("config")
+local sfx = require("sfx")
 
 local rules = {}
 
@@ -8,6 +9,7 @@ local function reset_ball(game)
     game.paddle_x = (config.width - config.paddle_width) / 2
     game.paddle_velocity = 0
     game.paddle_flash, game.border_flash = 0, 0
+    game.ball_flash = 0
     game.ball_x = game.paddle_x + config.paddle_width / 2
     game.ball_y = config.paddle_y - config.radius - 1
 end
@@ -18,9 +20,10 @@ local function fill_board(game)
     for row, color in ipairs(config.colors) do
         for column = 1, config.columns do
             local x = config.brick_left + (column - 1) * (config.brick_width + config.gap)
-            local y = config.top + 14 + (row - 1) * (config.brick_height + config.gap)
+            local y = config.brick_top + (row - 1) * (config.brick_height + config.gap)
             game.bricks[#game.bricks + 1] = {
                 x = x, y = y, right = x + config.brick_width, bottom = y + config.brick_height, color = color,
+                sprite = config.brick_sprites[row],
             }
         end
     end
@@ -52,16 +55,22 @@ local function move_ball(game, dt)
     if game.ball_x < config.left + config.radius then
         game.ball_x, game.vx = config.left + config.radius, math.abs(game.vx)
         game.border_flash = config.flash_duration
+        game.ball_flash = config.flash_duration
         spawn_impact(game, config.left, game.ball_y, 1, 0, config.colors[3])
+        sfx.play("wall")
     elseif game.ball_x > config.right - config.radius then
         game.ball_x, game.vx = config.right - config.radius, -math.abs(game.vx)
         game.border_flash = config.flash_duration
+        game.ball_flash = config.flash_duration
         spawn_impact(game, config.right, game.ball_y, -1, 0, config.colors[3])
+        sfx.play("wall")
     end
     if game.ball_y < config.top + config.radius then
         game.ball_y, game.vy = config.top + config.radius, math.abs(game.vy)
         game.border_flash = config.flash_duration
+        game.ball_flash = config.flash_duration
         spawn_impact(game, game.ball_x, config.top, 0, 1, config.colors[3])
+        sfx.play("wall")
     end
 
     if game.vy > 0
@@ -73,6 +82,8 @@ local function move_ball(game, dt)
         game.ball_y = config.paddle_y - config.radius
         game.vx, game.vy = game.ball_speed * math.sin(angle), -game.ball_speed * math.cos(angle)
         game.paddle_flash = config.flash_duration
+        game.ball_flash = config.flash_duration
+        sfx.play("paddle")
     end
 
     for index, brick in ipairs(game.bricks) do
@@ -90,6 +101,7 @@ local function move_ball(game, dt)
                 game.ball_y, game.vy = previous_y, -game.vy
             end
             table.remove(game.bricks, index)
+            sfx.play("brick")
             brick.age = 0
             game.destroyed_bricks[#game.destroyed_bricks + 1] = brick
             game.score = game.score + 10
@@ -101,6 +113,7 @@ local function move_ball(game, dt)
                 game.trail = {}
                 reset_ball(game)
             end
+            game.ball_flash = config.flash_duration
             return
         end
     end
@@ -129,6 +142,7 @@ local function move_paddle(game, direction, dt)
 end
 
 function rules.update(game, dt)
+    game.ball_flash = math.max(0, game.ball_flash - dt)
     input.update()
     local space = input.txt():find(" ", 1, true)
     game.board_entry_time = math.min(config.board_entry_duration, game.board_entry_time + dt)

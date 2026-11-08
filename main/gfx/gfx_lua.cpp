@@ -3,8 +3,10 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 #include "gfx.hpp"
+#include "sprite.hpp"
 
 extern "C" {
     #include "lauxlib.h"
@@ -13,6 +15,65 @@ extern "C" {
 
 namespace gfx {
 namespace {
+
+constexpr const char* sprite_type = "gfx.Sprite";
+
+int release_sprite(lua_State* state)
+{
+    auto** sprite = static_cast<Sprite**>(luaL_checkudata(state, 1, sprite_type));
+    delete *sprite;
+    *sprite = nullptr;
+    return 0;
+}
+
+Sprite& check_sprite(lua_State* state, int index)
+{
+    auto** sprite = static_cast<Sprite**>(luaL_checkudata(state, index, sprite_type));
+    luaL_argcheck(state, *sprite != nullptr, index, "sprite is closed");
+    return **sprite;
+}
+
+int sprite_get_pixel(lua_State* state);
+
+int sprite_index(lua_State* state)
+{
+    const char* key = luaL_checkstring(state, 2);
+    if (std::strcmp(key, "close") == 0) {
+        lua_pushcfunction(state, release_sprite);
+        return 1;
+    }
+    auto& sprite = check_sprite(state, 1);
+    if (std::strcmp(key, "pget") == 0) {
+        lua_pushcfunction(state, sprite_get_pixel);
+    } else if (std::strcmp(key, "width") == 0) {
+        lua_pushinteger(state, sprite.canvas.width());
+    } else if (std::strcmp(key, "height") == 0) {
+        lua_pushinteger(state, sprite.canvas.height());
+    } else {
+        lua_pushnil(state);
+    }
+    return 1;
+}
+
+int load_sprite(lua_State* state)
+{
+    size_t length;
+    const char* path = luaL_checklstring(state, 1, &length);
+    luaL_argcheck(state, std::strlen(path) == length, 1, "invalid PNG path");
+
+    // Install the finalizer before owning any C++ resources: Lua can longjmp on OOM.
+    auto** sprite = static_cast<Sprite**>(lua_newuserdatauv(state, sizeof(Sprite*), 0));
+    *sprite = nullptr;
+    luaL_setmetatable(state, sprite_type);
+    const char* error = nullptr;
+    *sprite = load_png(path, error);
+    if (!*sprite) {
+        lua_pushnil(state);
+        lua_pushstring(state, error);
+        return 2;
+    }
+    return 1;
+}
 
 M5Canvas& canvas(lua_State* state)
 {
@@ -29,6 +90,15 @@ int coordinate(lua_State* state, int index)
     luaL_argcheck(state, value >= INT16_MIN && value <= INT16_MAX, index,
                   "coordinate out of range");
     return static_cast<int>(value);
+}
+
+int sprite_get_pixel(lua_State* state)
+{
+    auto& sprite = check_sprite(state, 1);
+    const auto x = coordinate(state, 2);
+    const auto y = coordinate(state, 3);
+    lua_pushinteger(state, sprite.canvas.readPixel(x, y));
+    return 1;
 }
 
 int dimension(lua_State* state, int index)
@@ -67,6 +137,20 @@ uint16_t check_color(lua_State* state, int index)
 uint16_t drawing_color(lua_State* state, int index)
 {
     return lua_isnoneornil(state, index) ? gfx::get_color() : check_color(state, index);
+}
+
+int spr(lua_State* state)
+{
+    auto& sprite = check_sprite(state, 1);
+    const auto x = coordinate(state, 2);
+    const auto y = coordinate(state, 3);
+    if (lua_isnoneornil(state, 4)) {
+        sprite.canvas.pushSprite(&canvas(state), x, y);
+    } else {
+        const auto transparent = check_color(state, 4);
+        sprite.canvas.pushSprite(&canvas(state), x, y, transparent);
+    }
+    return 0;
 }
 
 uint8_t check_channel(lua_State* state, int index)
@@ -241,7 +325,20 @@ int presenter_fps(lua_State* state)
 int push_gfx_table(lua_State* state)
 {
     const auto& target = canvas(state);
+    if (luaL_newmetatable(state, sprite_type)) {
+        lua_pushcfunction(state, release_sprite);
+        lua_setfield(state, -2, "__gc");
+        lua_pushcfunction(state, release_sprite);
+        lua_setfield(state, -2, "__close");
+        lua_pushcfunction(state, sprite_index);
+        lua_setfield(state, -2, "__index");
+        lua_pushstring(state, sprite_type);
+        lua_setfield(state, -2, "__metatable");
+    }
+    lua_pop(state, 1);
     const luaL_Reg functions[] = {
+        {"load_sprite", load_sprite},
+        {"spr", spr},
         {"cls", clear},
         {"flip", swap_canvas},
         {"presenter_fps", presenter_fps},
