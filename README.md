@@ -26,11 +26,16 @@ At boot, TabOS tries `/sd/system.lua` and falls back to the bundled recovery she
 
 ## Repository
 
+For Lua completion and hover documentation in VS Code, install the recommended
+**Lua** extension (`sumneko.lua`) and open this repository folder. Workspace
+settings load the editor-only definitions in `tools/lua/` for `gfx`, `input`, `sys`,
+`fs`, and `audio`, including sprite methods, waveform choices, and return types.
+
 - `main/` — firmware and Lua bindings.
 - `components/` — local keyboard component.
 - `recovery_files/` — boot script, recovery shell, commands, and widgets.
 - `apps/` — example scripts and apps.
-- `docs/` — [Lua API reference](docs/README.md) for `gfx`, `input`, `sys`, and `fs`.
+- `docs/` — [Lua API reference](docs/README.md) for `gfx`, `input`, `sys`, `fs`, and `audio`.
 
 ## License
 

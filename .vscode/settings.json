@@ -1,5 +1,9 @@
 {
   "C_Cpp.intelliSenseEngine": "default",
+  "Lua.workspace.library": [
+    "${workspaceFolder}/tools/lua"
+  ],
+  "Lua.hint.enable": false,
   "idf.extensionActivationMode": "always",
   "cmake.configureOnOpen": false,
   "cmake.configureOnEdit": false,
