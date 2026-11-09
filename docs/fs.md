@@ -1,6 +1,6 @@
 # fs
 
-Pass path strings, such as `/sd/file.lua` or `/rec/system.lua`. The recovery mount is read-only. On filesystem failure, each function returns `nil, message, errno`.
+Pass path strings, such as `/sd/file.lua` or `/rec/sys/system.lua`. The recovery mount is read-only. On filesystem failure, each function returns `nil, message, errno`.
 
 | API | Success result |
 | --- | --- |

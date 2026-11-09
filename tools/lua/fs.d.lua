@@ -5,7 +5,7 @@
 ---@field size integer Size in bytes.
 ---@field mtime integer Modification time in Unix seconds.
 
----TabOS filesystem operations. Paths include /sd/file.lua and /rec/system.lua.
+---TabOS filesystem operations. Paths include /sd/file.lua and /rec/sys/system.lua.
 ---The recovery mount is read-only. Filesystem failures return nil, message, errno.
 fs = {}
 

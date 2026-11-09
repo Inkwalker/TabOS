@@ -1,5 +1,3 @@
-package.path = "/rec/?.lua;" .. package.path
-
 local boot_error = ...
 local commands = {}
 local lines = {}
@@ -118,7 +116,7 @@ local function run_app(path, args)
     shell.run_app(path, args)
 end
 
-local command_directory = "/rec/bin"
+local command_directory = "/rec/sys/bin"
 
 -- An external script returns metadata and a handler without running the command.
 -- Path handlers receive the working directory followed by resolved operands.

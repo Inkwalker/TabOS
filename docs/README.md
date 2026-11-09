@@ -23,8 +23,9 @@ The firmware opens these libraries before running the boot script.
 
 ## System startup hooks
 
-The bundled `/rec/boot.lua` loads `/sd/system.lua`, falling back to
-`/rec/system.lua` if the SD script is missing or its top-level chunk fails.
+The bundled `/rec/sys/boot.lua` loads `/sd/sys/system.lua`, falling back to
+`/rec/sys/system.lua` if the SD script is missing or its top-level chunk fails.
+System modules are loaded from the selected `sys` folder.
 Holding Del during boot forces recovery.
 
 After the boot script finishes, the firmware uses the system's global hooks:

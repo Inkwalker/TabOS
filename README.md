@@ -22,7 +22,7 @@ The SD card is mounted at `/sd` and exposed over USB MTP. Copy examples from `ap
 
 Use `edit <path>` in recovery to edit or create an ASCII text file on `/sd`, including quoted or relative paths. The editor supports files up to 64 KiB.
 
-At boot, TabOS tries `/sd/system.lua` and falls back to the bundled recovery shell if it is missing or fails to load. Hold **Del** during startup to force recovery.
+At boot, TabOS tries `/sd/sys/system.lua` and falls back to `/rec/sys/system.lua` if it is missing or fails to load. System modules are loaded from the selected `sys` folder. Hold **Del** during startup to force recovery.
 
 ## Repository
 
@@ -33,7 +33,7 @@ settings load the editor-only definitions in `tools/lua/` for `gfx`, `input`, `s
 
 - `main/` — firmware and Lua bindings.
 - `components/` — local keyboard component.
-- `recovery_files/` — boot script, recovery shell, commands, and widgets.
+- `recovery_files/` — system scripts and widgets in `sys/`, system commands in `sys/bin/`, and the editor app.
 - `apps/` — example scripts and apps.
 - `docs/` — [Lua API reference](docs/README.md) for `gfx`, `input`, `sys`, `fs`, and `audio`.
 

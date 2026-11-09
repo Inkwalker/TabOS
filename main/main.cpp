@@ -45,7 +45,7 @@ extern "C" void app_main()
         return;
     }
 
-    if (!lua_vm::start(lua_vm::ScriptKind::File, "/rec/boot.lua",
+    if (!lua_vm::start(lua_vm::ScriptKind::File, "/rec/sys/boot.lua",
                        {gfx::lua_module(), tabos::system::lua_module(), tabos::input::lua_module(),
                         tabos::fs::lua_module(), tabos::audio::lua_module()})) {
         ESP_LOGE("tabos", "Could not start the Lua VM task");

@@ -4,7 +4,8 @@ sys.set_led_brightness(10)
 sys.set_led(1, 0, 0, 255)
 sys.set_led(2, 0, 0, 0)
 
-local sd_path = "/sd/system.lua"
+local sd_path = "/sd/sys/system.lua"
+local base_package_path = package.path
 local sd_started, sd_error = false, nil
 input.update()
 -- Del is row 1, column 14 on the Tab5 keyboard.
@@ -17,6 +18,7 @@ elseif not fs.stat(sd_path) then
 else
     local chunk, load_error = loadfile(sd_path, "t", _ENV)
     if chunk then
+        package.path = "/sd/sys/?.lua;" .. base_package_path
         sd_started, sd_error = pcall(chunk)
     else
         sd_error = load_error
@@ -24,7 +26,8 @@ else
 end
 
 if not sd_started then
-    local chunk, err = loadfile("/rec/system.lua", "t", _ENV)
+    package.path = "/rec/sys/?.lua;" .. base_package_path
+    local chunk, err = loadfile("/rec/sys/system.lua", "t", _ENV)
     if not chunk then
         error(err, 0)
     end
