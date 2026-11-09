@@ -2,6 +2,7 @@
 
 | API | Behavior |
 | --- | --- |
+| `sys.sleep(milliseconds)` | Pause the Lua task, yielding CPU time, for approximately the requested duration (integer 0–60000 ms, scheduler tick resolution). Zero returns immediately. |
 | `sys.set_led(led, r, g, b)` | Set keyboard LED 1 (left) or 2 (right) with integer RGB channels in 0–255. Returns a success boolean. |
 | `sys.set_led_brightness(percent)` | Set keyboard LED brightness as an integer from 0 to 100. Returns a success boolean. |
 | `sys.sram()` | Return `used, total` bytes of byte-addressable internal heap. |

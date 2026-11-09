@@ -40,6 +40,10 @@ function sys.bat_lvl() end
 ---@return boolean? charging
 function sys.bat_chrg() end
 
+---Pause the Lua task for approximately the requested milliseconds (scheduler tick resolution).
+---@param milliseconds integer Duration (0–60000); 0 returns immediately.
+function sys.sleep(milliseconds) end
+
 ---Return the system clock as Unix seconds.
 ---@return integer timestamp
 function sys.get_time() end

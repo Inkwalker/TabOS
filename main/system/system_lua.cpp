@@ -30,7 +30,7 @@ bool keyboard_attached = false;
 bool enable_custom_rgb()
 {
     // Reapply the mode in case the keyboard was connected or reset after boot.
-    return attached_keyboard() && keyboard.writeRgbMode(m5::unit::tab5_keyboard::RgbMode::Custom);
+    return attached_keyboard() && keyboard.writeRgbMode(m5::unit::tab5_keyboard::RgbMode::Custom) && keyboard.writeRgb(0, 0, 0, 255);
 }
 
 uint8_t check_range(lua_State* state, int index, int min, int max, const char* message)
@@ -144,6 +144,16 @@ int is_charging(lua_State* state)
     return 1;
 }
 
+int sleep(lua_State* state)
+{
+    const auto milliseconds = luaL_checkinteger(state, 1);
+    luaL_argcheck(state, milliseconds >= 0 && milliseconds <= 60000, 1, "expected milliseconds 0..60000");
+    if (milliseconds > 0) {
+        vTaskDelay((milliseconds * configTICK_RATE_HZ + 999) / 1000);
+    }
+    return 0;
+}
+
 int get_time(lua_State* state)
 {
     lua_pushinteger(state, time(nullptr));
@@ -186,6 +196,7 @@ int push_system_table(lua_State* state)
         {"cpu_load", cpu_load},
         {"bat_lvl", battery_level},
         {"bat_chrg", is_charging},
+        {"sleep", sleep},
         {"get_time", get_time},
         {"set_time", set_time},
         {nullptr, nullptr},

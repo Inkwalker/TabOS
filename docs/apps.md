@@ -10,7 +10,12 @@ hello.tap/
     tools/init.lua
 ```
 
-Copy the directory to the SD card and run `/sd/hello.tap` in the recovery shell.
+Copy the directory to the SD card and tap its icon in the GUI launcher (tap
+Refresh if it was copied while the launcher was open). App names come from the
+directory name without `.tap`; no icon file is required. The launcher searches
+subdirectories too, without searching inside app bundles.
+
+Alternatively, run `/sd/hello.tap` in the recovery shell.
 Relative paths work too; quote paths or arguments containing spaces. Arguments
 are passed as strings to the top-level `app.lua` chunk via `...`:
 

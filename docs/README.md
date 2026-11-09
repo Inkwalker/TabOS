@@ -35,4 +35,6 @@ After the boot script finishes, the firmware uses the system's global hooks:
 | `init()` | Optional; called once after startup loading. |
 | `update(dt)` | Optional; called at a target rate of 60 Hz. `dt` is elapsed seconds since the previous tick. Without it, the Lua task ends after initialization. |
 
-Managed [.tap apps](apps.md) have separate hooks dispatched by the recovery shell.
+Managed [.tap apps](apps.md) have separate hooks dispatched by either shell using
+the shared recovery app runner. The SD GUI shell uses recovery system modules as
+a fallback, so copying `apps/` to the card is sufficient.
