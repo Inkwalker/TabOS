@@ -20,7 +20,7 @@ local clock_color = gfx.rgb(120, 240, 195)
 
 local column_width, row_height = 8, 10
 local rows = gfx.height // row_height
-local symbols = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+local symbols = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ@#$%&"
 local trail = {
     gfx.rgb(100, 240, 145),
     gfx.rgb(0, 153, 62),
@@ -32,26 +32,37 @@ local trail = {
 local streams = {}
 local frame_interval = 1 / 25
 local elapsed = frame_interval
+local digit_duration = 0.2
+local current_label, previous_label
+local digit_elapsed = digit_duration
+
+local function randomize_stream(stream)
+    for row = 1, rows do
+        local index = math.random(#symbols)
+        stream.letters[row] = symbols:sub(index, index)
+    end
+    stream.speed = math.random(4, 12)
+end
 
 function init()
     for x = 0, gfx.width - column_width, column_width do
-        local letters = {}
-        for row = 1, rows do
-            local index = math.random(#symbols)
-            letters[row] = symbols:sub(index, index)
-        end
-        streams[#streams + 1] = {
+        local stream = {
             x = x,
             head = math.random(0, rows + #trail - 1),
-            speed = math.random(4, 12),
-            letters = letters,
+            letters = {},
         }
+        randomize_stream(stream)
+        streams[#streams + 1] = stream
     end
 end
 
 local function draw_rain(dt)
     for _, stream in ipairs(streams) do
-        stream.head = (stream.head + stream.speed * dt) % (rows + #trail)
+        stream.head = stream.head + stream.speed * dt
+        if stream.head >= rows + #trail then
+            stream.head = stream.head % (rows + #trail)
+            randomize_stream(stream)
+        end
         local head = math.floor(stream.head)
         for offset, color in ipairs(trail) do
             local row = head - offset + 1
@@ -62,18 +73,42 @@ local function draw_rain(dt)
     end
 end
 
-local function draw_clock()
+local function draw_clock(dt)
     -- Use the same 24-hour UTC time as the recovery shell.
     local minutes = (sys.get_time() % 86400) // 60
     local label = string.format("%02d:%02d", minutes // 60, minutes % 60)
+    if label ~= current_label then
+        previous_label = current_label or label
+        current_label = label
+        digit_elapsed = current_label == previous_label and digit_duration or 0
+    else
+        digit_elapsed = math.min(digit_duration, digit_elapsed + dt)
+    end
+    local progress = digit_elapsed / digit_duration
     local x = clock_x
-    for character in label:gmatch(".") do
+    for index = 1, #label do
+        local character = label:sub(index, index)
         local glyph = glyphs[character]
+        local previous_glyph = glyphs[previous_label:sub(index, index)]
         for row, pattern in ipairs(glyph) do
-            for first, last in pattern:gmatch("()1+()") do
-                gfx.rectfill(x + (first - 1) * block_width,
-                    clock_y + (row - 1) * block_height,
-                    (last - first) * block_width, block_height, clock_color)
+            for column = 1, #pattern do
+                local was_on = previous_glyph[row]:sub(column, column) == "1"
+                local is_on = pattern:sub(column, column) == "1"
+                local scale = 0
+                if was_on and is_on then
+                    scale = 1
+                elseif is_on then
+                    scale = progress
+                elseif was_on then
+                    scale = 1 - progress
+                end
+                local width = math.floor(block_width * scale + 0.5)
+                local height = math.floor(block_height * scale + 0.5)
+                if width > 0 and height > 0 then
+                    gfx.rectfill(x + (column - 1) * block_width + (block_width - width) // 2,
+                        clock_y + (row - 1) * block_height + (block_height - height) // 2,
+                        width, height, clock_color)
+                end
             end
         end
         x = x + (#glyph[1] + 1) * block_width
@@ -89,7 +124,7 @@ function update(dt)
 
     gfx.cls()
     draw_rain(elapsed)
-    draw_clock()
+    draw_clock(elapsed)
     gfx.flip()
     elapsed = 0
 end
