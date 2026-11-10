@@ -1,96 +1,46 @@
 # .tap apps
 
-A `.tap` app is a directory, not an archive. No manifest is required.
+A `.tap` app is a directory with an `app.lua` entry point and an optional `lib/` directory for modules. Copy it to the SD card and tap its launcher icon. Use **Refresh** after adding apps.
 
-```text
-hello.tap/
-  app.lua          # Required entry point
-  lib/             # Optional app-local Lua modules
-    greeting.lua
-    tools/init.lua
-```
-
-Copy the directory to the SD card and tap its icon in the GUI launcher (tap
-Refresh if it was copied while the launcher was open). App names come from the
-directory name without `.tap`; no icon file is required. The launcher searches
-subdirectories too, without searching inside app bundles.
-
-Alternatively, run `/sd/hello.tap` in the recovery shell.
-Relative paths work too; quote paths or arguments containing spaces. Arguments
-are passed as strings to the top-level `app.lua` chunk via `...`:
-
-```lua
-local name = ...
-local greeting = require("greeting") -- lib/greeting.lua
-
-function init()
-    gfx.cls()
-    gfx.print(10, 10, greeting(name or "world"), gfx.rgb(255, 255, 255))
-    gfx.flip()
-end
-
-function update(dt)
-    if input.keyp(1, 1) then -- Esc
-        os.exit()
-        return
-    end
-end
-```
-
-For this example, `lib/greeting.lua` returns a function:
-
-```lua
-return function(name) return "Hello, " .. name end
-```
+The recovery shell accepts bundle paths such as `/sd/hello.tap`. Quote paths or arguments containing spaces. Launch arguments reach `app.lua` as strings in `...`.
 
 ## Modules and environment
 
-App-local `require("tools")` searches `lib/tools.lua`, then `lib/tools/init.lua`.
-Dots become directories: `require("tools.format")` loads `lib/tools/format.lua`
-or `lib/tools/format/init.lua`. Imports share the app environment and are cached
-per launch in `package.loaded`; a module returning `nil` is cached as `true`.
-Circular imports raise an error. This loader does not fall back to system modules
-or use `package.path`.
+`require("tools.format")` searches `lib/tools/format.lua`, then `lib/tools/format/init.lua`. Results are cached per launch in `package.loaded` (`nil` becomes `true`). Circular imports raise an error.
 
-Each launch has its own globals, `_G`, module cache, and `os` table.
-The environment inherits system globals, including `gfx`, `sys`, `fs`, and Lua
-libraries; shared tables remain shared, so this is not a security sandbox.
-
-The app's `os` table is available in modules and hooks. It provides these
-functions instead of the standard Lua `os` library:
+Each launch creates fresh globals, an app-local module cache, and an `os` table. Apps inherit shared system APIs such as `gfx`, `input`, and `fs`.
 
 | API | Behavior |
 | --- | --- |
-| `os.exit()` | Request app closure. |
-| `os.path(path)` | Resolve a path relative to the app directory, normalizing `.` and `..`. Absolute paths stay absolute; an empty string returns the app directory. |
+| `os.exit()` | Close after the current callback. Takes precedence over suspension. |
+| `os.suspend()` | Suspend after the current callback returns successfully. |
+| `os.path(path)` | Resolve a path relative to the bundle and normalize `.` and `..`. Absolute paths stay absolute. An empty path returns the bundle path. |
 
-Pass the resolved path to file APIs:
-
-```lua
-local ball = assert(gfx.load_sprite(os.path("spr/ball.png")))
-```
-
-Launching does not change the shell's working directory. Paths passed directly
-to file APIs are not automatically resolved relative to the app.
+Use `os.path("spr/ball.png")` to pass a bundle-relative asset path to file APIs.
 
 ## App hooks
 
-Define hooks as global functions in the app environment. All are optional;
-present hooks must be functions. The runner ignores their return values.
+Define hooks as optional global functions. Only `save_state()` uses its return values.
 
-| Hook | When it runs |
+| Hook | Behavior |
 | --- | --- |
-| `init()` | Once after `app.lua` finishes, unless exit was already requested. |
-| `update(dt)` | Each active shell tick, targeting 60 Hz; `dt` is elapsed seconds. Without this hook, the app closes after initialization. |
-| `deinit(reason)` | Once on close: `"exit"` for normal completion, `"forced"` for Ctrl+Esc, or `"error"` for a loading or callback error. |
+| `init(state)` | Run after `app.lua` unless it requests exit or suspension. Receives the saved table on resume, otherwise `nil`. |
+| `update(dt)` | Run at a target of 60 Hz with elapsed seconds. Apps without this hook close after initialization. |
+| `save_state()` | Return a plain table or `nil` when suspending. Returning `nil, message`, returning an invalid payload, or raising an error keeps the app running. |
+| `deinit(reason)` | Run once on close with `"exit"`, `"forced"` (Ctrl+Esc), `"error"`, or `"suspend"`. Cleanup errors are reported. |
 
-The shell polls hardware input before app updates; apps do not need to call
-`input.update()`. The runner suppresses keys held across app transitions until release.
-Apps draw their own frames and call `gfx.flip()` to present them.
+The shell polls input and blocks keys and touches held across transitions until release. Call `gfx.flip()` to present a frame.
 
-Call `os.exit()` to request app closure.
-Ctrl+Esc forces app termination.
-Cleanup cannot veto exit; cleanup errors are reported and the shell is restored.
+## Suspension and resume
 
-See the [system startup hooks](README.md#system-startup-hooks) for custom
-systems, and [bricks.tap](../apps/bricks.tap/app.lua) for a modular example.
+The shell keeps one session per normalized, case-insensitive bundle path in RAM until restart. A missing `save_state()` hook or a `nil` payload still creates a session. Exit, Ctrl+Esc, and callback errors skip state saving.
+
+Use strings, numbers, booleans, and plain tables for snapshot keys and values. The runner checks the root table for a metatable and retains it by reference. Treat the snapshot as read-only during cleanup and restoration.
+
+Launch the same bundle to resume. The runner reloads its code and reuses saved arguments when no new ones are supplied. Successful initialization consumes the session. A load or initialization error keeps it for retry.
+
+The launcher marks suspended apps with a pause badge. Hold the icon and confirm **Forget Session** to discard the RAM record.
+
+Custom shells can request suspension with `runner:suspend()`, check or read a session with `runner:has_session(path)` or `runner:session(path)`, and discard it with `runner:forget(path)`.
+
+See the [suspension specification](specs/app-suspension.md) for details and [Bricks](../apps/bricks.tap/app.lua) for a modular app example.

@@ -180,10 +180,26 @@ QueueHandle_t commands = nullptr;
 SemaphoreHandle_t command_gate = nullptr;
 std::atomic<bool> ready{false};
 
+void drain_commands()
+{
+    Command pending;
+    while (xQueueReceive(commands, &pending, 0) == pdPASS) {
+        if (pending.sound) {
+            pending.sound->release();
+        }
+    }
+}
+
 bool enqueue(const Command& command)
 {
-    if (!command_gate || xSemaphoreTake(command_gate, 0) != pdTRUE) {
+    const bool stop_all = command.action == Action::Stop && command.voice == all_voices;
+    if (!command_gate || xSemaphoreTake(command_gate, stop_all ? portMAX_DELAY : 0) != pdTRUE) {
         return false;
+    }
+    if (stop_all && ready.load()) {
+        // A lifecycle boundary must discard old queued playback and must not
+        // lose its stop command to a full queue. Producers are held at the gate.
+        drain_commands();
     }
     const bool queued = ready.load() && xQueueSend(commands, &command, 0) == pdPASS;
     xSemaphoreGive(command_gate);
@@ -196,12 +212,7 @@ void discard_pending_commands()
     xSemaphoreTake(command_gate, portMAX_DELAY);
     ready.store(false);
     xSemaphoreGive(command_gate);
-    Command command;
-    while (xQueueReceive(commands, &command, 0) == pdPASS) {
-        if (command.sound) {
-            command.sound->release();
-        }
-    }
+    drain_commands();
 }
 
 void task(void* context)

@@ -10,6 +10,9 @@ local message
 local status_elapsed = 0
 local touch_held = true -- Wait for boot/transition contacts to be released.
 local pressed
+local press_elapsed = 0
+local app_menu
+local confirm_forget = false
 
 local colors = {
     background = gfx.rgb(9, 15, 24),
@@ -120,6 +123,11 @@ local function draw()
         local icon_x = x + math.floor((width - 28) / 2)
         gfx.rectfill(icon_x, y + 6, 28, 28, colors.accent)
         centered(icon_x, y + 16, 28, app.name:sub(1, 1):upper(), colors.background)
+        if runner:has_session(app.path) then
+            gfx.rectfill(icon_x + 20, y + 6, 8, 8, colors.background)
+            gfx.rectfill(icon_x + 22, y + 8, 1, 4, colors.text)
+            gfx.rectfill(icon_x + 25, y + 8, 1, 4, colors.text)
+        end
         local label = shortened(app.name, math.floor((width - 4) / 6))
         centered(x, y + 42, width, label, colors.text)
     end
@@ -139,6 +147,27 @@ local function draw()
     centered(120, y + 8, gfx.width - 194, page .. "/" .. page_count(), colors.muted)
     button(gfx.width - 74, 74, "Refresh", {refresh = true}, true)
 
+    if app_menu then
+        targets = {}
+        local suspended = runner:has_session(app_menu.path)
+        gfx.rectfill(24, 26, gfx.width - 48, 126, colors.panel)
+        gfx.rect(24, 26, gfx.width - 48, 126, colors.accent)
+        gfx.print(32, 34, shortened(app_menu.name, 40), colors.text)
+        local function menu_button(y, label, action)
+            target(32, y, gfx.width - 64, 22, action)
+            gfx.print(40, y + 6, label, colors.text)
+        end
+        if confirm_forget then
+            gfx.print(32, 50, "Forget session? Unsaved work is lost.", colors.error)
+            menu_button(70, "Forget Session", {forget = app_menu})
+            menu_button(118, "Cancel", {cancel_menu = true})
+        else
+            gfx.print(32, 50, suspended and "Suspended" or "Ready", colors.muted)
+            menu_button(70, suspended and "Resume" or "Open", {app = app_menu})
+            if suspended then menu_button(94, "Forget Session...", {confirm_forget = true}) end
+            menu_button(118, "Cancel", {cancel_menu = true})
+        end
+    end
     if message then
         targets = {}
         target(0, 0, gfx.width, gfx.height, {dismiss = true})
@@ -163,6 +192,7 @@ end
 local function restore_shell()
     input.reset()
     touch_held, pressed = true, nil
+    app_menu, confirm_forget = nil, false
     scan_apps()
     refresh_status()
     draw()
@@ -176,7 +206,14 @@ function update(dt)
     input.update()
     if runner:active() then
         runner:update(dt)
-        if not runner:active() then restore_shell() end
+        if not runner:active() then
+            restore_shell()
+        elseif message then
+            -- Rejection leaves the app alive; show its reason above the app's frame.
+            gfx.rectfill(0, 0, gfx.width, 16, colors.panel)
+            gfx.print(4, 4, shortened(message:gsub("[%c]", " "), math.floor((gfx.width - 8) / 6)), colors.error)
+            gfx.flip()
+        end
         return
     end
     input.txt() -- The launcher has no text input; do not accumulate keystrokes.
@@ -190,6 +227,7 @@ function update(dt)
                 if contains(item, contact.x, contact.y) then
                     pressed = item
                     pressed.id = contact.id
+                    press_elapsed = 0
                     dirty = true
                     break
                 end
@@ -198,6 +236,14 @@ function update(dt)
             or not contains(pressed, contact.x, contact.y)) then
             pressed = nil
             dirty = true
+        end
+        if pressed and pressed.action.app and not app_menu then
+            press_elapsed = press_elapsed + dt
+            if press_elapsed >= 0.6 then
+                app_menu = pressed.action.app
+                confirm_forget, pressed = false, nil
+                dirty = true
+            end
         end
         touch_held = true
     else
@@ -211,6 +257,13 @@ function update(dt)
                 if not ok then show_error(err) end
                 if not runner:active() then restore_shell() end
                 return
+            elseif action.confirm_forget then
+                confirm_forget = true
+            elseif action.forget then
+                runner:forget(action.forget.path)
+                app_menu, confirm_forget = nil, false
+            elseif action.cancel_menu then
+                app_menu, confirm_forget = nil, false
             elseif action.page then
                 page = math.max(1, math.min(page_count(), page + action.page))
             elseif action.refresh then

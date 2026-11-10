@@ -3,9 +3,11 @@ local Gate = {}
 -- Suppress keys held across an ownership change until they have been released.
 function Gate.new(raw)
     local blocked = {}
+    local touch_blocked = true
     local gate = setmetatable({}, {__index = raw})
     function gate.reset()
         blocked = {}
+        touch_blocked = true
         for row = 1, 5 do
             for col = 1, 14 do
                 if raw.key(row, col) then blocked[row .. ":" .. col] = {row, col} end
@@ -14,9 +16,14 @@ function Gate.new(raw)
         raw.txt()
     end
     function gate.refresh()
+        if #raw.touch() == 0 then touch_blocked = false end
         for id, key in pairs(blocked) do
             if not raw.key(key[1], key[2]) then blocked[id] = nil end
         end
+    end
+    function gate.touch()
+        if touch_blocked then return {} end
+        return raw.touch()
     end
     for _, name in ipairs({"key", "keyp", "keyr"}) do
         gate[name] = function(row, col)

@@ -5,7 +5,7 @@ Audio uses six voices numbered 1–6. Each voice plays a wavetable oscillator or
 | API | Behavior |
 | --- | --- |
 | `audio.start(voice, frequency [, waveform])` | Start a wavetable voice. The waveform defaults to `"sine"`. |
-| `audio.stop([voice])` | Stop a voice. Stops all voices when omitted or `nil`. |
+| `audio.stop([voice])` | Stop a voice. When omitted or `nil`, discard pending audio commands and reliably queue a stop for all voices, including when the queue was full. |
 | `audio.set_frequency(voice, frequency)` | Change an active wavetable voice's frequency. Stopped voices and WAV playback are unaffected. |
 | `audio.set_waveform(voice, waveform)` | Change an active wavetable voice's waveform while preserving its frequency, volume, and envelope. Stopped voices and WAV playback are unaffected. |
 | `audio.set_volume(voice, volume)` | Set a voice's gain. |
