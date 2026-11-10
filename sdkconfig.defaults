@@ -11,11 +11,16 @@ CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_HEX=y
 CONFIG_SPIRAM_SPEED_200M=y
 CONFIG_SPIRAM_USE_MALLOC=y
+# LGFX_PPA uses the existing managed M5GFX dependency.
+CONFIG_LGFX_PPA_USE_GFX=y
+# CONFIG_LGFX_PPA_USE_LOVYANGFX is not set
+CONFIG_LGFX_PPA_USE_M5GFX=y
 # Keep firmware code in flash rather than copying it into PSRAM.
 # CONFIG_SPIRAM_XIP_FROM_PSRAM is not set
 
-# MTP owns USB-C; keep logs on UART0 and leave Serial/JTAG's audio pins free.
-CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+# Keep startup logs and panic output on the USB Serial/JTAG console.
+# CONFIG_ESP_CONSOLE_UART_DEFAULT is not set
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 CONFIG_FREERTOS_HZ=120

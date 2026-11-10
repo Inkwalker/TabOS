@@ -49,6 +49,14 @@ dependencies:
     source:
       type: idf
     version: 5.5.6
+  lgfx_ppa:
+    component_hash: fd69b0dc1e3ec23781979c4a21e8db4d52931cb6c803bdbd5362fcd330449e7f
+    dependencies: []
+    source:
+      git: https://github.com/tobozo/LGFX_PPA.git
+      path: .
+      type: git
+    version: 0215e1e3615ed73d1b76df131ac9d3c9503ceacb
   m5stack/M5HAL:
     component_hash: 2716c8d9f99a892fe089ac00be07ef3300ba0982f9fb1af63b028c84f1f6e3a2
     dependencies:
@@ -130,9 +138,10 @@ direct_dependencies:
 - espressif/lua
 - espressif/tinyusb
 - idf
+- lgfx_ppa
 - m5stack/M5UnitUnified
 - m5stack/m5gfx
 - m5stack/m5unified
-manifest_hash: a50d53524fddd63443bebb189cb7f9774580210072f6fb504324f9cc5550bf18
+manifest_hash: 313f8fc29c6cdc2930ac6d011145982ebc80ac103341f8d48b063fae11da75ca
 target: esp32p4
 version: 2.0.0

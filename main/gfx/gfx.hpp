@@ -1,6 +1,7 @@
 #pragma once
 
 #include "M5Unified.h"
+#include "LGFX_PPA.hpp"
 
 namespace lua_vm {
 class Module;
@@ -22,10 +23,15 @@ bool init();
 lua_vm::Module lua_module();
 
 // Returns nullptr before successful initialization.
-M5Canvas* active_canvas();
+lgfx::PPA_Sprite* active_canvas();
 
 // Publish the drawn canvas, replacing any pending frame.
 bool swap_canvas();
+
+// Blocking PPA operations with clipping and software fallback. Drawing pixels
+// are ready for reads, subsequent software drawing, and flip() on return.
+void fill_rect(int x, int y, int width, int height, uint16_t color);
+void draw_sprite(lgfx::PPA_Sprite& sprite, int x, int y, int32_t transparent = -1);
 
 // Last sampled rate of confirmed framebuffer swaps, or zero before the first sample.
 float presenter_fps();

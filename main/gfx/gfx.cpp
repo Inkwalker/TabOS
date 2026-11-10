@@ -1,7 +1,10 @@
 #include "gfx.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <cstring>
+#include <memory>
+#include <new>
 #include <utility>
 
 #include "esp_async_memcpy.h"
@@ -27,6 +30,7 @@ namespace gfx {
 namespace {
 
 constexpr const char* tag = "gfx";
+constexpr int ppa_sprite_min_pixels = 64 * 64;
 constexpr uint32_t framebuffer_bytes = screen_width * screen_height * sizeof(uint16_t);
 std::atomic<float> measured_presenter_fps{0.0f};
 
@@ -312,7 +316,7 @@ esp_err_t copy_frame_dma(const uint16_t* pixels, CopyDma& dma, uint8_t* framebuf
     return ESP_OK;
 }
 
-void copy_to_screen(const M5Canvas& canvas, ScreenTransfer& transfer, uint8_t* framebuffer)
+void copy_to_screen(const lgfx::PPA_Sprite& canvas, ScreenTransfer& transfer, uint8_t* framebuffer)
 {
     const auto* pixels = static_cast<const uint16_t*>(canvas.getBuffer());
     if (transfer.copy_dma.available()) {
@@ -374,8 +378,9 @@ void present_framebuffer(ScreenTransfer& transfer, const uint8_t* framebuffer)
 
 constexpr size_t canvas_bytes = canvas_width * canvas_height * sizeof(uint16_t);
 static_assert(canvas_bytes % dma_alignment == 0);
-M5Canvas drawing_canvas;
-M5Canvas canvases[2];
+lgfx::PPA_Sprite drawing_canvas;
+lgfx::PPA_Sprite canvases[2];
+std::unique_ptr<lgfx::PPABlend> ppa_blend;
 async_memcpy_handle_t submit_dma = nullptr;
 StaticSemaphore_t submit_done_storage;
 SemaphoreHandle_t submit_done = nullptr;
@@ -439,7 +444,7 @@ bool start_presenter()
 bool initialized = false;
 uint16_t draw_color = TFT_WHITE;
 
-bool setup_canvas(M5Canvas& canvas, uint32_t caps)
+bool setup_canvas(lgfx::PPA_Sprite& canvas, uint32_t caps)
 {
     auto* pixels = heap_caps_aligned_calloc(dma_alignment, 1, canvas_bytes, caps);
     if (!pixels) {
@@ -455,7 +460,7 @@ bool setup_canvas(M5Canvas& canvas, uint32_t caps)
     return true;
 }
 
-void release_canvas(M5Canvas& canvas)
+void release_canvas(lgfx::PPA_Sprite& canvas)
 {
     auto* pixels = canvas.getBuffer();
     canvas.deleteSprite();
@@ -513,11 +518,16 @@ bool init()
         }
         return false;
     }
+    // Use blocking sprite blits so CPU rasterization and pixel reads can safely
+    // interleave with PPA writes. The presenter only reads snapshot buffers.
+    ppa_blend.reset(new (std::nothrow) lgfx::PPABlend(&drawing_canvas, false));
+    if (ppa_blend && !ppa_blend->available()) ppa_blend.reset();
+    ESP_LOGI(tag, "Drawing: CPU fills, %s sprite blits", ppa_blend ? "CPU/PPA" : "CPU");
     initialized = true;
     return true;
 }
 
-M5Canvas* active_canvas()
+lgfx::PPA_Sprite* active_canvas()
 {
     return initialized ? &drawing_canvas : nullptr;
 }
@@ -547,6 +557,85 @@ bool swap_canvas()
     portEXIT_CRITICAL(&mailbox_lock);
     xTaskNotifyGive(presenter);
     return true;
+}
+
+void fill_rect(int x, int y, int width, int height, uint16_t color)
+{
+    const int right = std::min(canvas_width, x + width);
+    const int bottom = std::min(canvas_height, y + height);
+    x = std::max(0, x);
+    y = std::max(0, y);
+    width = right - x;
+    height = bottom - y;
+    if (width <= 0 || height <= 0) return;
+
+    drawing_canvas.fillRect(x, y, width, height, color);
+}
+
+void draw_sprite(lgfx::PPA_Sprite& sprite, int x, int y, int32_t transparent)
+{
+    const int source_x = std::max(0, -x);
+    const int source_y = std::max(0, -y);
+    const int width = std::min<int>(sprite.width() - source_x, canvas_width - std::max(0, x));
+    const int height = std::min<int>(sprite.height() - source_y, canvas_height - std::max(0, y));
+    if (width <= 0 || height <= 0) return;
+    const int destination_x = std::max(0, x);
+    const int destination_y = std::max(0, y);
+
+    // Small visible blocks are faster with M5GFX's CPU rasterizer. Use the
+    // clipped area so mostly off-screen sprites avoid PPA setup overhead too.
+    if (ppa_blend && width * height >= ppa_sprite_min_pixels) {
+        // The library's convenience blend API requires equal-size pictures.
+        // Configure the clipped blocks explicitly to support arbitrary sprites.
+        auto config = ppa_blend->config();
+        config.in_fg = {};
+        config.in_fg.buffer = sprite.getBuffer();
+        config.in_fg.pic_w = sprite.width();
+        config.in_fg.pic_h = sprite.height();
+        config.in_fg.block_w = width;
+        config.in_fg.block_h = height;
+        config.in_fg.block_offset_x = source_x;
+        config.in_fg.block_offset_y = source_y;
+        config.in_fg.blend_cm = PPA_BLEND_COLOR_MODE_RGB565;
+        config.in_bg = config.in_fg;
+        config.in_bg.buffer = drawing_canvas.getBuffer();
+        config.in_bg.pic_w = canvas_width;
+        config.in_bg.pic_h = canvas_height;
+        config.in_bg.block_offset_x = destination_x;
+        config.in_bg.block_offset_y = destination_y;
+        config.out = {};
+        config.out.buffer = drawing_canvas.getBuffer();
+        config.out.buffer_size = canvas_bytes;
+        config.out.pic_w = canvas_width;
+        config.out.pic_h = canvas_height;
+        config.out.block_offset_x = destination_x;
+        config.out.block_offset_y = destination_y;
+        config.out.blend_cm = PPA_BLEND_COLOR_MODE_RGB565;
+        config.fg_alpha_fix_val = 255;
+        config.bg_alpha_fix_val = 255;
+        config.fg_ck_en = transparent >= 0;
+        if (config.fg_ck_en) {
+            lgfx::rgb888_t key_color;
+            key_color = lgfx::rgb565_t(static_cast<uint16_t>(transparent));
+            const auto key = lgfx::ppa_color_convert_rgb888(key_color);
+            config.fg_ck_rgb_low_thres = key;
+            config.fg_ck_rgb_high_thres = key;
+            // Match exactly one RGB565 value regardless of how the hardware
+            // expands its 5/6-bit channels into the 8-bit comparison space.
+            config.fg_ck_rgb_low_thres.r &= 0xf8;
+            config.fg_ck_rgb_low_thres.g &= 0xfc;
+            config.fg_ck_rgb_low_thres.b &= 0xf8;
+            config.fg_ck_rgb_high_thres.r |= 0x07;
+            config.fg_ck_rgb_high_thres.g |= 0x03;
+            config.fg_ck_rgb_high_thres.b |= 0x07;
+        }
+        if (ppa_blend->exec(&config)) return;
+    }
+    if (transparent < 0) {
+        sprite.pushSprite(&drawing_canvas, x, y);
+    } else {
+        sprite.pushSprite(&drawing_canvas, x, y, static_cast<uint16_t>(transparent));
+    }
 }
 
 float presenter_fps()

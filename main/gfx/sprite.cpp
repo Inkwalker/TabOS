@@ -46,13 +46,22 @@ Sprite* load_png(const char* path, const char*& error)
         return nullptr;
     }
     auto& image = sprite->canvas;
-    image.setColorDepth(16);
-    // M5GFX falls back to internal DMA-capable RAM if PSRAM allocation fails.
-    image.setPsram(true);
-    if (!image.createSprite(width, height)) {
+    // Set the format before attaching pixels: LGFX_Sprite::setColorDepth()
+    // reallocates an existing buffer, changing its alignment and ownership.
+    // PPA_Sprite::createSprite() also truncates the native-endian format flag,
+    // so use its allocator and attach the buffer without a bpp override.
+    image.setColorDepth(lgfx::color_depth_t::rgb565_nonswapped);
+    const auto bytes = lgfx::lgfx_ppa_align_up(width * height * sizeof(uint16_t));
+    auto* pixels = lgfx::heap_alloc_ppa(bytes);
+    if (!pixels) {
+        pixels = heap_caps_aligned_calloc(LGFX_PPA_ALIGN_SIZE, 1, bytes,
+                                          MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
+    }
+    if (!pixels) {
         error = "cannot allocate sprite pixels";
         return nullptr;
     }
+    image.setBuffer(pixels, width, height);
     image.fillScreen(uint16_t(0));
     if (!image.drawPngFile(path)) {
         error = "cannot decode PNG file";

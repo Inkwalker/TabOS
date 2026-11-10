@@ -2,6 +2,8 @@
 
 Drawing uses a 320 × 180 landscape canvas with origin `(0, 0)` at the top left. Coordinates are integers from −32768 to 32767. Colors are RGB565 integers from 0 to 65535. An optional drawing color defaults to the current color when omitted or `nil`. The initial drawing color is white.
 
+The drawing buffer and PNG sprites use LGFX_PPA's aligned `PPA_Sprite` storage. Clears and filled rectangles use M5GFX's CPU rasterizer. Sprite blits use the CPU below 4,096 visible pixels and PPA blend at or above that threshold, with CPU fallback if PPA is unavailable or fails. The visible area is calculated after clipping to the canvas, so a mostly off-screen large sprite can use the CPU path. Both paths preserve the optional RGB565 color key. PPA drawing finishes before each call returns, so pixel reads and subsequent drawing see the result immediately. Rectangle outlines, all lines, other primitives, and text use the software rasterizer. Presentation retains the asynchronous DMA path and exact 4× integer pixel expansion; PPA's bilinear scaling would change that output. The Lua API is unchanged.
+
 | API | Behavior |
 | --- | --- |
 | `gfx.width`, `gfx.height` | Canvas dimensions in pixels. |
@@ -32,3 +34,5 @@ Circle radii are integers in 0–32767, ellipse radii in 0–512, and rectangle 
 Sprite dimensions must each be in 1–32767. Pixel storage requires approximately `width * height * 2` bytes, using PSRAM with internal RAM as a fallback. PNG transparency is flattened against black; sprites do not retain alpha.
 
 Sprite memory is released by garbage collection, when the Lua VM closes, or explicitly with `sprite:close()` or a Lua `<close>` local. Drawing or reading dimensions or pixels after closing raises an error.
+
+For an on-device regression check, copy [tools/test_gfx.lua](../tools/test_gfx.lua) to the SD card and run it from the recovery shell. It verifies fill colors, CPU/PPA interoperability, sprite clipping and color keys around the dispatch threshold, and repeated sprite cleanup.

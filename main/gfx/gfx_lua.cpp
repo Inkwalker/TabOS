@@ -75,7 +75,7 @@ int load_sprite(lua_State* state)
     return 1;
 }
 
-M5Canvas& canvas(lua_State* state)
+lgfx::PPA_Sprite& canvas(lua_State* state)
 {
     auto* target = gfx::active_canvas();
     if (!target) {
@@ -144,11 +144,12 @@ int spr(lua_State* state)
     auto& sprite = check_sprite(state, 1);
     const auto x = coordinate(state, 2);
     const auto y = coordinate(state, 3);
+    canvas(state);
     if (lua_isnoneornil(state, 4)) {
-        sprite.canvas.pushSprite(&canvas(state), x, y);
+        gfx::draw_sprite(sprite.canvas, x, y);
     } else {
         const auto transparent = check_color(state, 4);
-        sprite.canvas.pushSprite(&canvas(state), x, y, transparent);
+        gfx::draw_sprite(sprite.canvas, x, y, transparent);
     }
     return 0;
 }
@@ -185,7 +186,8 @@ int rgb(lua_State* state)
 int clear(lua_State* state)
 {
     const uint16_t color = lua_isnoneornil(state, 1) ? 0 : check_color(state, 1);
-    canvas(state).fillScreen(color);
+    canvas(state);
+    gfx::fill_rect(0, 0, canvas_width, canvas_height, color);
     return 0;
 }
 
@@ -261,7 +263,8 @@ int fill_rect(lua_State* state)
     const auto width = dimension(state, 3);
     const auto height = dimension(state, 4);
     const auto color = drawing_color(state, 5);
-    canvas(state).fillRect(x, y, width, height, color);
+    canvas(state);
+    gfx::fill_rect(x, y, width, height, color);
     return 0;
 }
 

@@ -174,8 +174,9 @@ function rules.update(game, dt)
         return
     end
 
-    -- The top row starts with Esc, then 1 through +.
-    local direction = (input.key(1, 13) and 1 or 0) - (input.key(1, 2) and 1 or 0)
+    local key_right = input.key(5, 13) or input.key(1, 13)
+    local key_left = input.key(5, 11) or input.key(1, 2)
+    local direction = (key_right and 1 or 0) - (key_left and 1 or 0)
     if game.state == "ready" then
         if space then
             game.launch_pending = true
