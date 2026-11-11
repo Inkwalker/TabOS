@@ -39,12 +39,21 @@ function Tabs:set_path(tab, path)
     tab.untitled = nil
 end
 
+function Tabs:add_document(document, path, number)
+    local tab = {document = document}
+    if path then
+        self:set_path(tab, path)
+    else
+        number = number or self.next_untitled
+        self.next_untitled = math.max(self.next_untitled, number + 1)
+        tab.name, tab.untitled = "Untitled " .. number, number
+    end
+    return append(self, tab)
+end
+
 function Tabs:create()
     if #self.items == Tabs.limit then return nil, "8 tabs open. Close a tab to add one." end
-    local number = self.next_untitled
-    self.next_untitled = self.next_untitled + 1
-    return append(self, {document = Document.new(nil, self.history),
-        name = "Untitled " .. number, untitled = number})
+    return self:add_document(Document.new(nil, self.history))
 end
 
 function Tabs:open(path)
@@ -59,9 +68,7 @@ function Tabs:open(path)
     local document
     document, err = Files.read(resolved, self.history)
     if not document then return nil, err end
-    local tab = {document = document}
-    self:set_path(tab, resolved)
-    return append(self, tab)
+    return self:add_document(document, resolved)
 end
 
 function Tabs:reload()

@@ -114,7 +114,8 @@ function Runner:launch(path, args)
     path = paths.resolve_path(path, "/")
     local key = session_key(path)
     local saved = self.sessions[key]
-    if not args or #args == 0 then args = saved and saved.args or {} end
+    local explicit_args = args ~= nil and #args > 0
+    if not explicit_args then args = saved and saved.args or {} end
     args = {table.unpack(args)}
     self.launches = self.launches + 1
     local app = {path = path, args = args}
@@ -143,7 +144,7 @@ function Runner:launch(path, args)
         end
         if app.exit_requested or app.suspend_requested then return end
         local start = rawget(env, "init")
-        if start then start(saved and saved.state) end
+        if start then start(saved and saved.state, explicit_args) end
         app.initialized = true
     end)
     if not ok then

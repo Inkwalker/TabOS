@@ -75,6 +75,18 @@ function View.reveal_caret(doc, rows)
     doc.left = math.max(doc.left, doc.column - width + 1)
 end
 
+function View.restore_position(doc, position)
+    local row = math.max(1, math.min(position.row, #doc.lines))
+    doc:set_caret(row, math.max(1, math.min(position.index, #doc.lines[row] + 1)))
+    doc.top = math.max(1, math.min(position.top, #doc.lines - View.rows + 1))
+    local _, _, width = code_geometry(doc)
+    local last_column = doc.column
+    for visible = doc.top, math.min(#doc.lines, doc.top + View.rows - 1) do
+        last_column = math.max(last_column, doc:column_at(visible))
+    end
+    doc.left = math.min(position.left, math.max(0, last_column - width + 1))
+end
+
 function View.place(doc, x, y, word)
     local _, gutter = code_geometry(doc)
     local row = doc.top + (math.max(header_height, math.min(status_y - 1, y)) - header_height) // row_height
@@ -175,12 +187,22 @@ local function tab_strip(state)
     end
 end
 
+local function recovery_status(state)
+    if not state.recovery_error then return false end
+    gfx.print(2, status_y, "Recovery unavailable", accent)
+    return true
+end
+
 local function status(state, doc)
     gfx.rectfill(0, status_y, gfx.width, gfx.height - status_y, panel)
     local position = doc and string.format("%s %d:%d", doc.eol == "\n" and "LF" or "CRLF",
         doc.row, doc.column + 1) or ""
     local x = gfx.width - #position * char_width - 2
-    if state.message then
+    if recovery_status(state) then
+        local detail = state.message or state.recovery_error
+        gfx.print(128, status_y, shorten(display_path(detail), (x - 130) // char_width), accent)
+        gfx.print(x, status_y, position, foreground)
+    elseif state.message then
         gfx.print(2, status_y, shorten(display_path(state.message), (gfx.width - 4) // char_width), accent)
     else
         local hint = state.mode == "find" and "Enter Next   Shift+Enter Prev" or "Esc Menu   Ctrl+O Open   Ctrl+F Find"
@@ -193,11 +215,11 @@ local menu = {
     {"New", "new"}, {"Open", "open"}, {"Save", "save"}, {"Save As", "save_as"},
     {"Tabs", "tabs"}, {"Close Tab", "close"},
     {"Select All", "select_all"}, {"Cut", "cut"}, {"Copy", "copy"}, {"Paste", "paste"},
-    {"Undo", "undo"}, {"Redo", "redo"}, {"Find", "find"}, {"Exit", "exit"},
+    {"Undo", "undo"}, {"Redo", "redo"}, {"Find", "find"}, {"Home", "home"}, {"Exit", "exit"},
 }
 
 local function draw_menu(state)
-    local x, y, width, step = 208, 14, 108, 11
+    local x, y, width, step = 208, 14, 108, 10
     local padding = 2
     local left, top = x - padding, y - padding
     local panel_width = width + padding * 2
@@ -302,11 +324,12 @@ local function draw_browser(state)
             gfx.rectfill(6 + (caret - first) * char_width, 142, 1, 10, accent)
         end
         button(state, 280, 139, 36, 16, "Save", "choose_target")
-        gfx.print(4, 165, "Tab Filename   Enter Select / Save", muted)
-    else
+        if not state.recovery_error then gfx.print(4, 165, "Tab Filename   Enter Select / Save", muted) end
+    elseif not state.recovery_error then
         gfx.print(4, 165, "Arrows Select   Enter Open", muted)
     end
     button(state, 262, 157, 54, 21, "Back", "back")
+    recovery_status(state)
 end
 
 local dialog_columns, dialog_rows = 50, 8

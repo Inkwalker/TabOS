@@ -30,6 +30,10 @@ function Files.parent(path)
     return path:match("^(.*)/[^/]+$")
 end
 
+function Files.recovery_directory()
+    return os.path(".recovery")
+end
+
 -- The Lua filesystem exposes directory names but no inode or FAT short alias.
 -- Require a listed name so a short alias cannot replace an open long-name file.
 function Files.named_child(folder, name)
@@ -64,9 +68,10 @@ function Files.list(folder)
     local names, err = fs.list(folder)
     if not names then return nil, err or folder end
     local entries = {}
+    local recovery_key = Files.key(Files.recovery_directory())
     for _, name in ipairs(names) do
         local path = folder .. "/" .. name
-        if name_length(name) and Files.key(path) ~= "/SD/.TABOS/CODE" then
+        if name_length(name) and Files.key(path) ~= recovery_key then
             local info, stat_error, code = fs.stat(path)
             if info then
                 entries[#entries + 1] = {name = name, path = path, key = fat_upper(name),

@@ -27,6 +27,16 @@ function History:detach(doc)
     self.documents[doc] = nil
 end
 
+function History:restore(doc, undo, redo)
+    doc.undo, doc.redo = undo, redo
+    for _, stack in ipairs({undo, redo}) do
+        for _, edit in ipairs(stack) do
+            self.bytes = self.bytes + cost(edit)
+            self.sequence = math.max(self.sequence, edit.sequence)
+        end
+    end
+end
+
 local function remove_oldest(history, stack)
     history.bytes = history.bytes - cost(table.remove(stack, 1))
 end

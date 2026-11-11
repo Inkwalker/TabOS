@@ -35,7 +35,7 @@ local function index_at(line, column)
     return math.min(#line + 1, start + math.floor(column + 0.5) - display)
 end
 
-function Document.new(bytes, history)
+function Document.new(bytes, history, eol)
     local saved = bytes
     bytes = bytes or ""
     if #bytes > Document.limit then return nil, "File exceeds 64 KiB" end
@@ -50,11 +50,13 @@ function Document.new(bytes, history)
     if pairs > 0 and pairs ~= #lines - 1 then
         return nil, "Mixed LF and CRLF line endings"
     end
+    local detected = pairs > 0 and "\r\n" or "\n"
+    if eol and #lines > 1 and eol ~= detected then return nil, "Invalid draft line endings" end
     history = history or History.new()
     local doc = setmetatable({
-        lines = lines, eol = pairs > 0 and "\r\n" or "\n", size = #bytes,
+        lines = lines, eol = eol or detected, size = #bytes,
         row = 1, index = 1, column = 0, saved = saved, modified = saved == nil,
-        top = 1, left = 0, history = history, undo = {}, redo = {},
+        top = 1, left = 0, revision = 0, history = history, undo = {}, redo = {},
     }, Document)
     history:attach(doc)
     return doc
@@ -251,7 +253,50 @@ local function replay(doc, edit, reverse)
     end
 end
 
+local function within(lines, row, index)
+    return lines[row] ~= nil and index <= #lines[row] + 1
+end
+
+local function valid_position(lines, position)
+    local anchor = position.anchor
+    return within(lines, position.row, position.index)
+        and (not anchor or within(lines, anchor.row, anchor.index))
+end
+
+function Document:valid_position(position)
+    return valid_position(self.lines, position)
+end
+
+-- Check each edit against its own version of the document before accepting
+-- history from a suspension snapshot. Leave the live text and caret alone.
+function Document:valid_history(stack, reverse)
+    if #stack == 0 then return true end
+    local lines, size = table.move(self.lines, 1, #self.lines, 1, {}), self.size
+    for index = #stack, 1, -1 do
+        local edit = stack[index]
+        local from, to = edit.before, edit.after
+        local last, stop, end_row, end_index = edit.last, edit.stop, to.row, to.index
+        local removed, inserted, delta = edit.removed, edit.inserted, edit.delta
+        if reverse then
+            from, to = to, from
+            last, stop, end_row, end_index = end_row, end_index, last, stop
+            removed, inserted, delta = inserted, removed, -delta
+        end
+        if not valid_position(lines, from) or not within(lines, edit.row, edit.index)
+            or not within(lines, last, stop) or last < edit.row or (last == edit.row and stop < edit.index)
+            or range_text(lines, edit.row, edit.index, last, stop) ~= removed then return false end
+        local _, breaks = inserted:gsub("\n", "")
+        if delta ~= #inserted - #removed + (breaks - (last - edit.row)) * (#self.eol - 1)
+            or size + delta < 0 or size + delta > Document.limit then return false end
+        local row, caret = splice(lines, edit.row, edit.index, last, stop, inserted)
+        if row ~= end_row or caret ~= end_index or not valid_position(lines, to) then return false end
+        size = size + delta
+    end
+    return true
+end
+
 local function update_modified(self)
+    self.revision = self.revision + 1
     self.modified = not self.saved or self.size ~= #self.saved or self:serialize() ~= self.saved
 end
 

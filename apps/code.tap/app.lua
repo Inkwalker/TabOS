@@ -5,9 +5,13 @@ local Keyboard = require("keyboard")
 local Browser = require("browser")
 local Files = require("files")
 local Find = require("find")
+local Document = require("document")
+local Recovery = require("recovery")
+local Suspension = require("suspension")
 
 local state = {tabs = Tabs.new(), find = Find.new(), mode = "edit", first_tab = 1, blink = 0, folder = "/sd"}
 local keyboard = Keyboard.new()
+local recovery = Recovery.new()
 local touch_id, touch_target, gesture
 local long_press_time, drag_threshold = 0.5, 3
 local directions = {"left", "right", "up", "down"}
@@ -40,6 +44,19 @@ local function report(err)
     state.message_time = err and 5 or nil
 end
 
+local function recovery_result(ok, detail)
+    local previous = state.recovery_error
+    state.recovery_error = not ok and (detail or "SD write failed") or nil
+    return previous ~= state.recovery_error
+end
+
+local function flush_recovery(drafts, discarded)
+    local ok, detail = recovery:flush(state.tabs, keyboard.time, drafts, discarded)
+    recovery.retry_at = ok and 0 or keyboard.time + 2
+    recovery_result(ok, detail)
+    return ok
+end
+
 local function create_tab()
     local _, err = state.tabs:create()
     report(err)
@@ -47,7 +64,11 @@ local function create_tab()
 end
 
 local function close_tab()
+    local tab = state.tabs:current()
+    if not tab then return end
+    recovery:retire(tab)
     state.tabs:close_current()
+    flush_recovery()
     reveal_tab()
 end
 
@@ -75,6 +96,18 @@ local function confirm_close()
         {{"Save (S)", "save", "s"}, {"Discard (Y)", "discard", "y"}, {"Cancel", "back", "n"}}, "back")
 end
 
+local function finish_exit()
+    for tab in pairs(state.discarded) do recovery:retire(tab) end
+    if flush_recovery("all", state.discarded) then
+        state.exiting = true
+        os.exit()
+    else
+        dialog("Recovery update failed", state.recovery_error,
+            {{"Retry", "retry_exit"}, {"Exit anyway", "exit_anyway"}}, "wait")
+        state.dialog.row = 1
+    end
+end
+
 local function advance_exit()
     for index, tab in ipairs(state.tabs.items) do
         if tab.document.modified and not state.discarded[tab] then
@@ -84,7 +117,7 @@ local function advance_exit()
             return
         end
     end
-    os.exit()
+    finish_exit()
 end
 
 local function finish_close()
@@ -121,6 +154,8 @@ local function save_to(path, expected, save_as)
     end
     doc:mark_saved(bytes)
     state.tabs:set_path(tab, path)
+    recovery:retire(tab)
+    flush_recovery()
     state.folder = Files.parent(path)
     state.browser, state.overwrite = nil, nil
     if detail then
@@ -176,11 +211,149 @@ local function open_entry()
 end
 
 local function reload()
+    local tab = state.tabs:current()
     local ok, err = state.tabs:reload()
     if not ok then failure("Reload failed", err); return end
+    recovery:retire(tab)
+    flush_recovery()
     return_to_editor()
     reveal_tab()
     report("Reloaded")
+end
+
+local function restore_tab(entry, doc, source_path, draft)
+    local tabs = state.tabs
+    tabs:add_document(doc, source_path, entry.number > 0 and entry.number or nil)
+    recovery:attach(tabs:current(), entry, draft)
+end
+
+local function finish_launch(launch, requested)
+    local tabs = state.tabs
+    state.launch = nil
+    return_to_editor()
+    tabs:activate(launch.active or 1)
+    if launch.folder then state.folder = launch.folder end
+    if requested then
+        local resolved = Files.resolve(requested)
+        local index = resolved and tabs:find(Files.key(resolved))
+        local err
+        if index then
+            tabs:activate(index)
+        else
+            resolved, err = Files.startup_path(requested)
+            if resolved then
+                local _
+                _, err = tabs:open(resolved)
+            end
+        end
+        if err then
+            if #launch.issues > 0 then launch.issues[#launch.issues + 1] = err else state.message = err end
+        else
+            state.folder = Files.parent(tabs:current().path)
+        end
+    end
+    local tab = tabs:current()
+    if not launch.folder and tab and tab.path then state.folder = Files.parent(tab.path) end
+    reveal_tab()
+    if #launch.issues > 0 then
+        dialog("Session restore", table.concat(launch.issues, "\n"), {{"OK", "back"}}, "back")
+    end
+end
+
+local function advance_recovery(accept)
+    local launch, tabs = state.launch, state.tabs
+    local prompt = launch.prompt
+    if prompt then
+        local entry = prompt.entry
+        if accept then
+            if prompt.source then tabs.history:detach(prompt.source) end
+            restore_tab(entry, prompt.draft, prompt.source and entry.path, prompt.reference)
+        else
+            tabs.history:detach(prompt.draft)
+            recovery_result(recovery:discard_entry(entry))
+            if prompt.source then restore_tab(entry, prompt.source, entry.path) end
+        end
+        launch.prompt = nil
+    end
+
+    local items = launch.session.items
+    while launch.row < #items do
+        launch.row = launch.row + 1
+        local entry = items[launch.row]
+        local source, source_error
+        if entry.path then source, source_error = Files.read(entry.path, tabs.history) end
+        if entry.draft > 0 then
+            local draft, bytes, reference, older = recovery:draft(entry, tabs.history)
+            local name = entry.path or ("Untitled " .. entry.number)
+            if not draft then
+                launch.issues[#launch.issues + 1] = name .. "\n" .. bytes
+            elseif source and source.saved == bytes then
+                tabs.history:detach(draft)
+            else
+                local detail = name
+                if source_error then
+                    detail = detail .. "\n" .. source_error .. "\nRecover as an untitled tab."
+                elseif source and source.saved ~= draft.saved then
+                    detail = detail .. "\nSource changed on SD. Save will check for changes."
+                end
+                if older then detail = detail .. "\nUsing an older complete draft." end
+                launch.prompt = {entry = entry, source = source, draft = draft, reference = reference}
+                dialog("Recover unsaved changes?", detail,
+                    {{"Recover", "recover", "r"}, {"Discard draft", "discard_draft", "d"}}, "wait")
+                state.dialog.row = 1
+                return
+            end
+        end
+        if source then
+            restore_tab(entry, source, entry.path)
+        elseif source_error then
+            launch.issues[#launch.issues + 1] = entry.path .. "\n" .. source_error
+            recovery:drop(entry)
+        elseif entry.draft == 0 then
+            restore_tab(entry, Document.new(nil, tabs.history))
+        else
+            recovery:drop(entry)
+        end
+    end
+    finish_launch(launch, path)
+end
+
+local function resume(saved, explicit_args)
+    local snapshot = Suspension.decode(saved)
+    local session, err = recovery:load()
+    assert(not recovery.unread, err or "SD session unavailable")
+    local entries = session and session.items or {}
+    assert(snapshot.generation == recovery.generation and snapshot.manifest == Recovery.checksum(recovery.signature)
+        and #snapshot.views == #entries, "SD session changed or is missing")
+
+    local tabs = state.tabs
+    local launch = {issues = {}, folder = snapshot.folder}
+    for index, entry in ipairs(entries) do
+        local doc, detail, reference
+        if entry.draft > 0 then
+            doc, detail, reference = recovery:draft(entry, tabs.history, true)
+            assert(doc, detail)
+        elseif entry.path then
+            doc, detail = Files.read(entry.path, tabs.history)
+        else
+            doc = Document.new(nil, tabs.history)
+        end
+        if doc then
+            local view = snapshot.views[index]
+            if not Suspension.restore_document(doc, view) then
+                assert(not reference and entry.path, "Suspended draft contents changed")
+                View.restore_position(doc, view)
+                launch.issues[#launch.issues + 1] = entry.path .. "\nSource changed while suspended."
+            end
+            restore_tab(entry, doc, entry.path, reference)
+            if index <= snapshot.active or not launch.active then launch.active = tabs.active end
+        else
+            launch.issues[#launch.issues + 1] = entry.path .. "\n" .. detail
+        end
+    end
+    state.clipboard = snapshot.clipboard
+    state.find.query, state.find.caret = snapshot.query, #snapshot.query + 1
+    finish_launch(launch, explicit_args ~= false and path or nil)
 end
 
 local function set_tab_row(index)
@@ -237,6 +410,21 @@ local function perform(action)
         change_mode("menu")
     elseif action == "back" then
         return_to_editor()
+    elseif action == "recover" or action == "discard_draft" then
+        advance_recovery(action == "recover")
+    elseif action == "retry_exit" then
+        finish_exit()
+    elseif action == "exit_anyway" then
+        state.exiting = true
+        os.exit()
+    elseif action == "home" then
+        change_mode("edit")
+        if os.suspend then
+            state.going_home = true
+            os.suspend()
+        else
+            report("Update TabOS to use Home")
+        end
     elseif action == "find" then
         if current then
             report(nil)
@@ -579,16 +767,38 @@ local function editor_keys(text)
     return redraw
 end
 
-function init()
-    if path then
-        local resolved, err = Files.startup_path(path)
-        if resolved then
-            local _
-            _, err = state.tabs:open(resolved)
+function save_state()
+    if state.launch or (state.dialog and state.dialog.back == "wait") then
+        return nil, "Finish the current recovery decision before suspending"
+    end
+    local ok, detail = recovery:checkpoint(state.tabs, keyboard.time)
+    if not ok then
+        recovery_result(false, detail)
+        View.draw(state)
+        return nil, "Cannot suspend Code: " .. (detail or "SD recovery write failed")
+    end
+    return Suspension.capture(state, recovery)
+end
+
+function init(saved, explicit_args)
+    if saved ~= nil then
+        local ok, detail = pcall(resume, saved, explicit_args)
+        if not ok then error("Cannot resume Code: " .. tostring(detail), 0) end
+        View.draw(state)
+        return
+    end
+    local session, err = recovery:load()
+    local issues = {}
+    if recovery.unread then recovery_result(false, err)
+    elseif err then issues[1] = err end
+    if session then
+        for _, entry in ipairs(session.items) do
+            state.tabs.next_untitled = math.max(state.tabs.next_untitled, entry.number + 1)
         end
-        state.message = err
-        local tab = state.tabs:current()
-        if tab then state.folder = Files.parent(tab.path) end
+        state.launch = {session = session, row = 0, issues = issues}
+        advance_recovery()
+    else
+        finish_launch({issues = issues}, path)
     end
     View.draw(state)
 end
@@ -626,6 +836,16 @@ function update(dt)
         redraw = editor_keys(text) or redraw
     else
         redraw = modal_keys(text) or redraw
+    end
+    if state.exiting then return end
+    if state.going_home then
+        state.going_home = nil
+        return
+    end
+    -- Recovery prompts and exit retries hold decisions that are not yet published.
+    if not state.launch and not (state.dialog and state.dialog.back == "wait") then
+        local ok, detail = recovery:update(state.tabs, keyboard.time)
+        if ok ~= nil or detail then redraw = recovery_result(ok, detail) or redraw end
     end
     if redraw then View.draw(state) end
 end
