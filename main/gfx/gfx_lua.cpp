@@ -313,8 +313,10 @@ int text(lua_State* state)
 }
 int swap_canvas(lua_State* state)
 {
-    if (!gfx::swap_canvas()) {
-        return luaL_error(state, "gfx has no active canvas");
+    canvas(state);
+    const auto result = gfx::swap_canvas();
+    if (result != ESP_OK) {
+        return luaL_error(state, "gfx.flip: canvas DMA transfer failed (%s)", esp_err_to_name(result));
     }
     return 0;
 }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "esp_err.h"
 #include "M5Unified.h"
 #include "LGFX_PPA.hpp"
 
@@ -26,7 +27,7 @@ lua_vm::Module lua_module();
 lgfx::PPA_Sprite* active_canvas();
 
 // Publish the drawn canvas, replacing any pending frame.
-bool swap_canvas();
+esp_err_t swap_canvas();
 
 // Blocking PPA operations with clipping and software fallback. Drawing pixels
 // are ready for reads, subsequent software drawing, and flip() on return.

@@ -7,7 +7,6 @@
 #include <new>
 #include <utility>
 
-#include "esp_async_memcpy.h"
 #include "esp_cache.h"
 #include "esp_check.h"
 #include "esp_ipc.h"
@@ -62,19 +61,23 @@ public:
     CopyDma(const CopyDma&) = delete;
     CopyDma& operator=(const CopyDma&) = delete;
 
-    esp_err_t init();
+    esp_err_t init_bands();
+    esp_err_t init_canvas(void* source, size_t size);
     void release();
     bool available() const { return ready_; }
-    esp_err_t copy_band(uint8_t* destination);
+    esp_err_t copy(void* destination);
 
 private:
-    esp_err_t configure();
+    esp_err_t configure(size_t source_items, size_t size, size_t tx_burst);
+    esp_err_t mount_source(int item, void* source, size_t size, size_t alignment, bool last);
+    esp_err_t finish_init(esp_err_t result);
 
     gdma_channel_handle_t tx_ = nullptr;
     gdma_channel_handle_t rx_ = nullptr;
     gdma_link_list_handle_t source_list_ = nullptr;
     gdma_link_list_handle_t destination_list_ = nullptr;
     SemaphoreHandle_t done_ = nullptr;
+    size_t size_ = 0;
     bool tx_connected_ = false;
     bool rx_connected_ = false;
     bool active_ = false;
@@ -133,15 +136,45 @@ void CopyDma::release()
     }
 }
 
-esp_err_t CopyDma::init()
+esp_err_t CopyDma::finish_init(esp_err_t result)
 {
-    const auto result = configure();
     ready_ = result == ESP_OK;
     if (!ready_) release();
     return result;
 }
 
-esp_err_t CopyDma::configure()
+esp_err_t CopyDma::init_bands()
+{
+    auto result = configure(band_rows, band_bytes, tx_burst_bytes);
+    for (int row = 0; row < band_rows && result == ESP_OK; ++row) {
+        result = mount_source(row, staging[row / scale].pixels, row_bytes, tx_burst_bytes,
+                              row == band_rows - 1);
+    }
+    return finish_init(result);
+}
+
+esp_err_t CopyDma::init_canvas(void* source, size_t size)
+{
+    const auto items = esp_dma_calculate_node_count(size, dma_alignment, descriptor_max_bytes);
+    auto result = configure(items, size, dma_alignment);
+    if (result == ESP_OK) result = mount_source(0, source, size, dma_alignment, true);
+    return finish_init(result);
+}
+
+esp_err_t CopyDma::mount_source(int item, void* source, size_t size, size_t alignment, bool last)
+{
+    gdma_buffer_mount_config_t config{};
+    config.buffer = source;
+    config.buffer_alignment = alignment;
+    config.length = size;
+    if (last) {
+        config.flags.mark_eof = true;
+        config.flags.mark_final = GDMA_FINAL_LINK_TO_NULL;
+    }
+    return gdma_link_mount_buffers(source_list_, item, &config, 1, nullptr);
+}
+
+esp_err_t CopyDma::configure(size_t source_items, size_t size, size_t tx_burst)
 {
     gdma_channel_alloc_config_t tx_config{};
     tx_config.direction = GDMA_CHANNEL_DIRECTION_TX;
@@ -172,7 +205,7 @@ esp_err_t CopyDma::configure()
     ESP_RETURN_ON_ERROR(gdma_apply_strategy(rx_, &strategy), tag, "configure RX strategy");
 
     gdma_transfer_config_t config{};
-    config.max_data_burst_size = tx_burst_bytes;
+    config.max_data_burst_size = tx_burst;
     ESP_RETURN_ON_ERROR(gdma_config_transfer(tx_, &config), tag, "configure TX burst");
     config.max_data_burst_size = rx_burst_bytes;
     config.access_ext_mem = true;
@@ -180,29 +213,16 @@ esp_err_t CopyDma::configure()
 
     gdma_link_list_config_t list_config{};
     list_config.item_alignment = 8; // Required by AXI GDMA.
-    list_config.num_items = band_rows;
+    list_config.num_items = source_items;
     ESP_RETURN_ON_ERROR(gdma_new_link_list(&list_config, &source_list_),
                         tag, "allocate TX descriptors");
-    for (int row = 0; row < band_rows; ++row) {
-        gdma_buffer_mount_config_t source{};
-        source.buffer = staging[row / scale].pixels;
-        source.buffer_alignment = tx_burst_bytes;
-        source.length = row_bytes;
-        if (row == band_rows - 1) {
-            source.flags.mark_eof = true;
-            source.flags.mark_final = GDMA_FINAL_LINK_TO_NULL;
-        }
-        ESP_RETURN_ON_ERROR(gdma_link_mount_buffers(source_list_, row, &source, 1, nullptr),
-                            tag, "mount TX row");
-    }
-
-    // RX writes back descriptor state. Remount its destination after each completed band.
-    list_config.num_items = esp_dma_calculate_node_count(band_bytes, dma_alignment,
-                                                         descriptor_max_bytes);
+    // RX writes back descriptor state. Remount the destination for each copy.
+    list_config.num_items = esp_dma_calculate_node_count(size, dma_alignment, descriptor_max_bytes);
     ESP_RETURN_ON_ERROR(gdma_new_link_list(&list_config, &destination_list_),
                         tag, "allocate RX descriptors");
     done_ = xSemaphoreCreateBinary();
     if (!done_) return ESP_ERR_NO_MEM;
+    size_ = size;
     gdma_rx_event_callbacks_t callbacks{};
     callbacks.on_recv_eof = signal_copy_done;
     return gdma_register_rx_event_callbacks(rx_, &callbacks, done_);
@@ -260,7 +280,7 @@ bool init_screen_transfer(ScreenTransfer& transfer)
         dma_aligned &= address % dma_alignment == 0;
     }
 
-    const auto result = dma_aligned ? transfer.copy_dma.init() : ESP_ERR_INVALID_ARG;
+    const auto result = dma_aligned ? transfer.copy_dma.init_bands() : ESP_ERR_INVALID_ARG;
     if (result != ESP_OK) {
         ESP_LOGW(tag, "Copy DMA unavailable (%s); using CPU copy", esp_err_to_name(result));
     }
@@ -281,23 +301,22 @@ void expand_band(const uint16_t* pixels, int band, ExpandedBand& expanded)
     }
 }
 
-esp_err_t CopyDma::copy_band(uint8_t* destination)
+esp_err_t CopyDma::copy(void* destination)
 {
-    ESP_RETURN_ON_ERROR(esp_cache_msync(staging, sizeof(staging),
-                                      ESP_CACHE_MSYNC_FLAG_DIR_C2M), tag, "publish staging pixels");
+    if (!ready_) return ESP_ERR_INVALID_STATE;
     gdma_buffer_mount_config_t target{};
     target.buffer = destination;
     target.buffer_alignment = dma_alignment;
-    target.length = band_bytes;
+    target.length = size_;
     target.flags.mark_final = GDMA_FINAL_LINK_TO_NULL;
     ESP_RETURN_ON_ERROR(gdma_link_mount_buffers(destination_list_, 0, &target, 1, nullptr),
-                        tag, "mount RX band");
+                        tag, "mount RX destination");
     ESP_RETURN_ON_ERROR(gdma_start(rx_, gdma_link_get_head_addr(destination_list_)),
                         tag, "start copy RX");
     active_ = true;
     ESP_RETURN_ON_ERROR(gdma_start(tx_, gdma_link_get_head_addr(source_list_)),
                         tag, "start copy TX");
-    // DMA must finish reading the staging buffer before the next band overwrites it.
+    // Wait until DMA has finished reading the source before returning it to the caller.
     if (xSemaphoreTake(done_, pdMS_TO_TICKS(copy_timeout_ms)) != pdTRUE) {
         return ESP_ERR_TIMEOUT;
     }
@@ -309,8 +328,10 @@ esp_err_t copy_frame_dma(const uint16_t* pixels, CopyDma& dma, uint8_t* framebuf
 {
     for (int band = 0; band < canvas_width; band += band_columns) {
         expand_band(pixels, band, staging);
+        ESP_RETURN_ON_ERROR(esp_cache_msync(staging, sizeof(staging), ESP_CACHE_MSYNC_FLAG_DIR_C2M),
+                            tag, "publish staging pixels");
         auto* destination = framebuffer + (band / band_columns) * band_bytes;
-        const auto result = dma.copy_band(destination);
+        const auto result = dma.copy(destination);
         if (result != ESP_OK) return result;
     }
     return ESP_OK;
@@ -381,9 +402,7 @@ static_assert(canvas_bytes % dma_alignment == 0);
 lgfx::PPA_Sprite drawing_canvas;
 lgfx::PPA_Sprite canvases[2];
 std::unique_ptr<lgfx::PPABlend> ppa_blend;
-async_memcpy_handle_t submit_dma = nullptr;
-StaticSemaphore_t submit_done_storage;
-SemaphoreHandle_t submit_done = nullptr;
+CopyDma submit_dma;
 int mailbox_index = 1;
 bool frame_pending = false;
 portMUX_TYPE mailbox_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -467,20 +486,10 @@ void release_canvas(lgfx::PPA_Sprite& canvas)
     heap_caps_free(pixels);
 }
 
-bool IRAM_ATTR signal_submit_done(async_memcpy_handle_t, async_memcpy_event_t*, void* context)
-{
-    BaseType_t woken = pdFALSE;
-    xSemaphoreGiveFromISR(static_cast<SemaphoreHandle_t>(context), &woken);
-    return woken == pdTRUE;
-}
-
 bool init_submit_dma()
 {
-    async_memcpy_config_t config{};
-    config.backlog = 2;
-    config.dma_burst_size = dma_alignment;
-    submit_done = xSemaphoreCreateBinaryStatic(&submit_done_storage);
-    const auto result = esp_async_memcpy_install_gdma_axi(&config, &submit_dma);
+    // Keep the descriptor lists for the lifetime of the canvas, including across flips.
+    const auto result = submit_dma.init_canvas(drawing_canvas.getBuffer(), canvas_bytes);
     if (result != ESP_OK) {
         ESP_LOGE(tag, "Could not initialize canvas DMA (%s)", esp_err_to_name(result));
     }
@@ -508,10 +517,7 @@ bool init()
         !setup_canvas(canvases[1], MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) ||
         !init_submit_dma() ||
         !start_presenter()) {
-        if (submit_dma) {
-            esp_async_memcpy_uninstall(submit_dma);
-            submit_dma = nullptr;
-        }
+        submit_dma.release();
         release_canvas(drawing_canvas);
         for (auto& canvas : canvases) {
             release_canvas(canvas);
@@ -532,10 +538,10 @@ lgfx::PPA_Sprite* active_canvas()
     return initialized ? &drawing_canvas : nullptr;
 }
 
-bool swap_canvas()
+esp_err_t swap_canvas()
 {
     if (!initialized) {
-        return false;
+        return ESP_ERR_INVALID_STATE;
     }
 
     // Reserve the mailbox for DMA, dropping its old frame if still pending.
@@ -544,19 +550,22 @@ bool swap_canvas()
     auto* destination = canvases[mailbox_index].getBuffer();
     portEXIT_CRITICAL(&mailbox_lock);
 
-    const auto result = esp_async_memcpy(submit_dma, destination, drawing_canvas.getBuffer(),
-                                         canvas_bytes, signal_submit_done, submit_done);
+    ESP_RETURN_ON_ERROR(esp_cache_msync(drawing_canvas.getBuffer(), canvas_bytes,
+                                      ESP_CACHE_MSYNC_FLAG_DIR_C2M), tag, "publish canvas pixels");
+    ESP_RETURN_ON_ERROR(esp_cache_msync(destination, canvas_bytes, ESP_CACHE_MSYNC_FLAG_DIR_M2C),
+                        tag, "invalidate mailbox pixels");
+    const auto result = submit_dma.copy(destination);
     if (result != ESP_OK) {
-        ESP_LOGE(tag, "Canvas DMA submission failed (%s)", esp_err_to_name(result));
-        return false;
+        // Stop any incomplete transfer before Lua can write to the source again.
+        submit_dma.release();
+        return result;
     }
-    // Lua can resume drawing once GDMA has finished reading the only drawing canvas.
-    xSemaphoreTake(submit_done, portMAX_DELAY);
+    esp_psram_mspi_mb();
     portENTER_CRITICAL(&mailbox_lock);
     frame_pending = true;
     portEXIT_CRITICAL(&mailbox_lock);
     xTaskNotifyGive(presenter);
-    return true;
+    return ESP_OK;
 }
 
 void fill_rect(int x, int y, int width, int height, uint16_t color)
