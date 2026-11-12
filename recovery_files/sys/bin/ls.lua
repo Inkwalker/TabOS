@@ -6,21 +6,23 @@ return {
     count = 1,
     handler = function(cwd, path)
         path = path or cwd
-        local entries = {}
+        local names = {}
         if path == "/" then
             -- ESP-IDF mounts these volumes separately and has no directory at /.
             for _, name in ipairs({"rec", "sd"}) do
                 if fs.stat("/" .. name) then
-                    entries[#entries + 1] = name
+                    names[#names + 1] = name
                 end
             end
-        elseif paths.path_type(path) == "directory" then
-            entries = paths.check(fs.list(path))
+        elseif paths.path_type(path) == "dir" then
+            for _, entry in ipairs(paths.check(fs.list(path))) do
+                names[#names + 1] = entry.name
+            end
         else
-            entries[1] = path:match("[^/]+$")
+            names[1] = path:match("[^/]+$")
         end
-        table.sort(entries)
-        for _, name in ipairs(entries) do
+        table.sort(names)
+        for _, name in ipairs(names) do
             shell.write(name)
         end
     end,

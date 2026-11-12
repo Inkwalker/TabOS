@@ -1,17 +1,21 @@
 ---@meta
 
 ---@class fs.Stat
----@field type "directory"|"file" Entry type.
+---@field type "dir"|"file" Entry type.
 ---@field size integer Size in bytes.
 ---@field mtime integer Modification time in Unix seconds.
+
+---@class fs.DirEntry
+---@field name string Entry name.
+---@field type? "dir"|"file" Entry type when reported by the filesystem.
 
 ---TabOS filesystem operations. Paths include /sd/file.lua and /rec/sys/system.lua.
 ---The recovery mount is read-only. Filesystem failures return nil, message, errno.
 fs = {}
 
----List entry names in directory iteration order, excluding `.` and `..`.
+---List entry names and available types in directory iteration order, excluding `.` and `..`.
 ---@param path string Directory path.
----@return string[]? entries Entry names, or nil on failure.
+---@return fs.DirEntry[]? entries Directory entries, or nil on failure.
 ---@return string? message Error message on failure.
 ---@return integer? errno Error number on failure.
 function fs.list(path) end

@@ -147,7 +147,7 @@ shell.register("help", function()
         descriptions[name] = command.description
     end
     for _, entry in ipairs(fs.list(command_directory) or {}) do
-        local name = entry:lower():match("^([%w_%-]+)%.lua$")
+        local name = entry.name:lower():match("^([%w_%-]+)%.lua$")
         if name and not commands[name] then
             local ok, command = pcall(load_command, name)
             if ok and command then
@@ -188,7 +188,7 @@ end, "Set the system clock with time HH:MM (UTC).")
 
 shell.register("cd", function(_, path)
     path = path or "/"
-    paths.check(paths.path_type(path) == "directory", path .. ": not a directory")
+    paths.check(paths.path_type(path) == "dir", path .. ": not a directory")
     current_directory = path
 end, "Change directory. With no argument, go to /.")
 commands.cd.operands, commands.cd.count = "[directory]", 1

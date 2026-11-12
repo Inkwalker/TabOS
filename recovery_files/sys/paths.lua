@@ -24,14 +24,14 @@ end
 
 function paths.path_type(path)
     if path == "/" then
-        return "directory"
+        return "dir"
     end
     return paths.check(fs.stat(path)).type
 end
 
 function paths.destination_path(source, destination)
     local info = fs.stat(destination)
-    if destination == "/" or (info and info.type == "directory") then
+    if destination == "/" or (info and info.type == "dir") then
         destination = (destination == "/" and "" or destination) .. "/" .. source:match("[^/]+$")
         info = fs.stat(destination)
     end

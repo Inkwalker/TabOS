@@ -58,13 +58,13 @@ local function scan_apps()
             show_error(err or ("Cannot read " .. directory))
         else
             for _, entry in ipairs(entries) do
-                local path = directory .. "/" .. entry
-                local info = fs.stat(path)
-                if info and info.type == "directory" then
-                    if entry:sub(-4):lower() == ".tap" then
+                if entry.type == "dir" then
+                    local name = entry.name
+                    local path = directory .. "/" .. name
+                    if name:sub(-4):lower() == ".tap" then
                         local main = fs.stat(path .. "/app.lua")
                         if main and main.type == "file" then
-                            apps[#apps + 1] = {name = entry:sub(1, -5), path = path}
+                            apps[#apps + 1] = {name = name:sub(1, -5), path = path}
                         end
                     else
                         directories[#directories + 1] = path

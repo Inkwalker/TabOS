@@ -41,7 +41,7 @@ function Files:open(path)
     if not info and code ~= 2 then return nil, err end
     if info and info.type ~= "file" then return nil, "Path is a directory" end
     local parent = self.fs.stat(path:match("^(.*)/[^/]+$"))
-    if not parent or parent.type ~= "directory" then return nil, "Parent directory unavailable" end
+    if not parent or parent.type ~= "dir" then return nil, "Parent directory unavailable" end
     local bytes = ""
     if info then
         bytes, err = self:read(path)

@@ -3,6 +3,7 @@ local fat_upper = require("fat_case")
 local Encoding = require("filename_encoding")
 local Files = {}
 local missing = 2 -- ENOENT
+local io_error = 5 -- EIO
 
 local function name_length(name)
     if name == "" or name:find('[%z\1-\31\127/\\:*?"<>|]') or name:match("^[ .]+$") then return nil end
@@ -34,14 +35,15 @@ function Files.recovery_directory()
     return os.path(".recovery")
 end
 
--- The Lua filesystem exposes directory names but no inode or FAT short alias.
+-- The Lua filesystem exposes no inode or FAT short alias.
 -- Require a listed name so a short alias cannot replace an open long-name file.
 function Files.named_child(folder, name)
-    local names, err = fs.list(folder)
-    if not names then return nil, "List failed: " .. (err or folder) end
+    local entries, err = fs.list(folder)
+    if not entries then return nil, "List failed: " .. (err or folder) end
     local key = Files.key(name)
-    for _, entry in ipairs(names) do
-        if name_length(entry) and Files.key(entry) == key then return folder .. "/" .. entry end
+    for _, entry in ipairs(entries) do
+        local listed_name = entry.name
+        if name_length(listed_name) and Files.key(listed_name) == key then return folder .. "/" .. listed_name end
     end
     return nil, "Name not found. Use the name shown in the SD browser: " .. name
 end
@@ -65,20 +67,20 @@ function Files.target(folder, name)
 end
 
 function Files.list(folder)
-    local names, err = fs.list(folder)
-    if not names then return nil, err or folder end
+    local children, err, code = fs.list(folder)
+    -- Retry a transient I/O failure with a fresh directory stream.
+    if not children and code == io_error then
+        children, err = fs.list(folder)
+    end
+    if not children then return nil, err or folder end
     local entries = {}
     local recovery_key = Files.key(Files.recovery_directory())
-    for _, name in ipairs(names) do
+    for _, child in ipairs(children) do
+        local name = child.name
         local path = folder .. "/" .. name
-        if name_length(name) and Files.key(path) ~= recovery_key then
-            local info, stat_error, code = fs.stat(path)
-            if info then
-                entries[#entries + 1] = {name = name, path = path, key = fat_upper(name),
-                    directory = info.type == "directory"}
-            elseif code ~= missing then
-                return nil, stat_error or path
-            end
+        if child.type and name_length(name) and Files.key(path) ~= recovery_key then
+            entries[#entries + 1] = {name = name, path = path, key = fat_upper(name),
+                directory = child.type == "dir"}
         end
     end
     table.sort(entries, function(a, b)

@@ -65,6 +65,7 @@ function Tabs:open(path)
         return true
     end
     if #self.items == Tabs.limit then return nil, "8 tabs open. Close a tab to open this file." end
+    collectgarbage("collect")
     local document
     document, err = Files.read(resolved, self.history)
     if not document then return nil, err end

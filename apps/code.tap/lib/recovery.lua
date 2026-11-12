@@ -173,7 +173,7 @@ end
 
 local function read_sessions()
     local sd, err = fs.stat("/sd")
-    if not sd or sd.type ~= "directory" then return nil, err or "SD card unavailable", true end
+    if not sd or sd.type ~= "dir" then return nil, err or "SD card unavailable", true end
     local first, first_error, first_unavailable = read_session(0)
     local second, second_error, second_unavailable = read_session(1)
     local session = first
@@ -198,7 +198,7 @@ local function ensure_directory()
         local created
         created, err = fs.mkdir(root)
         if not created then return nil, err or root end
-    elseif not info or info.type ~= "directory" then
+    elseif not info or info.type ~= "dir" then
         return nil, err or root
     end
     return true
