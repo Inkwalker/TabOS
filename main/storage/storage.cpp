@@ -78,6 +78,8 @@ esp_err_t start_mtp()
 void init()
 {
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+    // Reserve the DMA buffer at mount time for transfers with unaligned buffers.
+    host.flags |= SDMMC_HOST_FLAG_ALLOC_ALIGNED_BUF;
     host.slot = SDMMC_HOST_SLOT_0;
     sdmmc_slot_config_t slot = SDMMC_SLOT_CONFIG_DEFAULT();
     slot.width = 4;

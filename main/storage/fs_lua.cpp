@@ -16,6 +16,14 @@ extern "C" {
 namespace tabos::fs {
 namespace {
 
+int directory_error(lua_State* state, const char* operation, const char* path)
+{
+    const int code = errno;
+    const char* context = lua_pushfstring(state, "%s %s", operation, path);
+    errno = code;
+    return luaL_fileresult(state, 0, context);
+}
+
 int read_directory(lua_State* state)
 {
     auto* directory = static_cast<DIR*>(lua_touserdata(state, 1));
@@ -26,12 +34,18 @@ int read_directory(lua_State* state)
         errno = 0;
         const auto* entry = readdir(directory);
         if (!entry) {
-            return errno == 0 ? 1 : luaL_fileresult(state, 0, path);
+            return errno == 0 ? 1 : directory_error(state, "readdir", path);
         }
         if (std::strcmp(entry->d_name, ".") == 0 || std::strcmp(entry->d_name, "..") == 0) {
             continue;
         }
+        lua_createtable(state, 0, 2);
         lua_pushstring(state, entry->d_name);
+        lua_setfield(state, -2, "name");
+        if (entry->d_type == DT_DIR || entry->d_type == DT_REG) {
+            lua_pushstring(state, entry->d_type == DT_DIR ? "dir" : "file");
+            lua_setfield(state, -2, "type");
+        }
         lua_rawseti(state, -2, index++);
     }
 }
@@ -44,7 +58,7 @@ int list(lua_State* state)
     lua_pushcfunction(state, read_directory);
     auto* directory = opendir(path);
     if (!directory) {
-        return luaL_fileresult(state, 0, path);
+        return directory_error(state, "opendir", path);
     }
 
     // Protect table construction so Lua allocation errors still close the directory.
@@ -52,12 +66,14 @@ int list(lua_State* state)
     lua_pushvalue(state, 1);
     const int status = lua_pcall(state, 2, LUA_MULTRET, 0);
     const int close_status = closedir(directory);
+    const int close_error = errno;
     if (status != LUA_OK) {
         return lua_error(state);
     }
     const int result_count = lua_gettop(state) - 1;
     if (result_count == 1 && close_status != 0) {
-        return luaL_fileresult(state, 0, path);
+        errno = close_error;
+        return directory_error(state, "closedir", path);
     }
     return result_count;
 }
@@ -71,7 +87,7 @@ int file_stat(lua_State* state)
     }
 
     lua_createtable(state, 0, 3);
-    lua_pushstring(state, S_ISDIR(info.st_mode) ? "directory" : "file");
+    lua_pushstring(state, S_ISDIR(info.st_mode) ? "dir" : "file");
     lua_setfield(state, -2, "type");
     lua_pushinteger(state, info.st_size);
     lua_setfield(state, -2, "size");
