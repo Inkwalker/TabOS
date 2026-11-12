@@ -1,5 +1,8 @@
 {
   "C_Cpp.intelliSenseEngine": "default",
+  "files.associations": {
+    "*.ltab": "lua"
+  },
   "Lua.workspace.library": [
     "${workspaceFolder}/tools/lua"
   ],

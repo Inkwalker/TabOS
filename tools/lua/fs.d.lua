@@ -27,6 +27,21 @@ function fs.list(path) end
 ---@return integer? errno Error number on failure.
 function fs.stat(path) end
 
+---Read a data-only Lua table literal without executing code.
+---@param path string Data file path.
+---@return table? config Parsed configuration, or nil on failure.
+---@return string? message Error message on failure.
+---@return integer? errno Error number on filesystem failure.
+function fs.read_table(path) end
+
+---Write a Lua table literal. Cycles and unsupported types return an error.
+---@param path string Data file path.
+---@param data table Root table with string, finite number, or boolean keys.
+---@return true? success True on success, or nil on failure.
+---@return string? message Error message or backup cleanup warning.
+---@return integer? errno Error number on filesystem failure.
+function fs.write_table(path, data) end
+
 ---Create one directory; parent directories must already exist.
 ---@param path string Directory path.
 ---@return true? success True on success, or nil on failure.

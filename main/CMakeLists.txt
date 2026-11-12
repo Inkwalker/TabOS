@@ -1,7 +1,7 @@
 idf_component_register(SRCS "main.cpp" "lua/lua_vm.cpp" "gfx/gfx.cpp" "gfx/gfx_lua.cpp"
                         "gfx/sprite.cpp"
                         "system/system_lua.cpp" "input/input_lua.cpp"
-                        "storage/storage.cpp" "storage/fs_lua.cpp"
+                        "storage/storage.cpp" "storage/fs_lua.cpp" "storage/fs_table.cpp"
                         "audio/audio.cpp" "audio/audio_lua.cpp" "audio/sound.cpp"
                     INCLUDE_DIRS "."
                     PRIV_REQUIRES esp_hw_support esp_mm esp_lcd esp_timer esp_psram
@@ -14,3 +14,4 @@ fatfs_create_rawflash_image(
 )
 
 set_source_files_properties(gfx/gfx.cpp PROPERTIES COMPILE_OPTIONS "-O3")
+set_source_files_properties(storage/fs_table.cpp PROPERTIES COMPILE_OPTIONS "-Os")

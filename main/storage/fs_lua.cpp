@@ -14,8 +14,11 @@ extern "C" {
 }
 
 namespace tabos::fs {
-namespace {
 
+int read_table(lua_State* state);
+int write_table(lua_State* state);
+
+namespace {
 int directory_error(lua_State* state, const char* operation, const char* path)
 {
     const int code = errno;
@@ -121,6 +124,8 @@ int push_fs_table(lua_State* state)
     const luaL_Reg functions[] = {
         {"list", list},
         {"stat", file_stat},
+        {"read_table", read_table},
+        {"write_table", write_table},
         {"mkdir", make_directory},
         {"rename", rename_path},
         {"remove", remove_path},
