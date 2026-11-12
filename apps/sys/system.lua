@@ -49,6 +49,9 @@ local function page_count()
 end
 
 local function scan_apps()
+    for _, app in ipairs(apps) do
+        if app.icon then app.icon:close() end
+    end
     apps = {}
     local directories = {"/sd"}
     while #directories > 0 do
@@ -64,7 +67,30 @@ local function scan_apps()
                     if name:sub(-4):lower() == ".tap" then
                         local main = fs.stat(path .. "/app.lua")
                         if main and main.type == "file" then
-                            apps[#apps + 1] = {name = name:sub(1, -5), path = path}
+                            local app = {name = name:sub(1, -5), path = path}
+                            local manifest = fs.read_table(path .. "/manifest.ltab")
+                            if manifest then
+                                if type(manifest.name) == "string" and manifest.name:find("%S")
+                                    and not manifest.name:find("%c") then
+                                    app.name = manifest.name
+                                end
+                                local icon = manifest.icon
+                                if type(icon) == "string" and icon ~= ""
+                                    and not icon:find("[%c\\:]") and icon:sub(1, 1) ~= "/" then
+                                    local safe = true
+                                    for part in icon:gmatch("[^/]+") do
+                                        if part == ".." then safe = false end
+                                    end
+                                    if safe then
+                                        app.icon = gfx.load_sprite(path .. "/" .. icon)
+                                        if app.icon and (app.icon.width > 28 or app.icon.height > 28) then
+                                            app.icon:close()
+                                            app.icon = nil
+                                        end
+                                    end
+                                end
+                            end
+                            apps[#apps + 1] = app
                         end
                     else
                         directories[#directories + 1] = path
@@ -119,10 +145,14 @@ local function draw()
         target(x, y, width, height, {app = app})
         local held = pressed and pressed.action.app == app
         gfx.rectfill(x, y, width, height, held and colors.pressed or colors.tile)
-        -- A built-in icon works for every app without requiring a manifest/PNG.
         local icon_x = x + math.floor((width - 28) / 2)
-        gfx.rectfill(icon_x, y + 6, 28, 28, colors.accent)
-        centered(icon_x, y + 16, 28, app.name:sub(1, 1):upper(), colors.background)
+        if app.icon then
+            gfx.spr(app.icon, icon_x + math.floor((28 - app.icon.width) / 2),
+                y + 6 + math.floor((28 - app.icon.height) / 2))
+        else
+            gfx.rectfill(icon_x, y + 6, 28, 28, colors.accent)
+            centered(icon_x, y + 16, 28, app.name:sub(1, 1):upper(), colors.background)
+        end
         if runner:has_session(app.path) then
             gfx.rectfill(icon_x + 20, y + 6, 8, 8, colors.background)
             gfx.rectfill(icon_x + 22, y + 8, 1, 4, colors.text)
