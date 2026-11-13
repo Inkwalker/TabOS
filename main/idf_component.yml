@@ -2,7 +2,7 @@
 dependencies:
   ## Required IDF version
   idf:
-    version: '>=4.1.0'
+    version: '>=5.3'
   # # Put list of dependencies here
   # # For components maintained by Espressif:
   # component: "~1.0.0"
@@ -21,8 +21,7 @@ dependencies:
     git: https://github.com/m5stack/M5UnitUnified.git
     version: 68a8fa74959a3c18ffae5ce7f73ac61ecf651d4c
   espressif/lua: ^5.5.1
-  espressif/esp_tinyusb: "2.4.0"
-  espressif/tinyusb: "0.21.0~2"
+  espressif/esp_tinyusb: "3.0.0"
   lgfx_ppa:
     git: https://github.com/tobozo/LGFX_PPA.git
     version: main
