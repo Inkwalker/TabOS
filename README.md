@@ -26,6 +26,10 @@ idf.py -p PORT flash
 
 Replace `PORT` with your device's serial port. Dependencies are resolved by the ESP-IDF Component Manager.
 
+After dependencies are downloaded or refreshed, run `python tools/patch_esp_tinyusb_mtp.py`
+and rebuild before flashing. This fixes an `esp_tinyusb` 3.0.0 MTP bug that shows
+nested SD card files in the root directory. The script is safe to rerun.
+
 Project is configured to run in VS Code.
 
 ## Repository
