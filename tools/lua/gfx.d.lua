@@ -34,7 +34,19 @@ function gfx.cls(color) end
 
 ---Submit a copy of the canvas for asynchronous presentation.
 ---Replaces any pending frame and leaves drawing pixels intact. Raises on failure.
+---Resets the clip rectangle to the full canvas on success.
 function gfx.flip() end
+
+---Set the active canvas clip rectangle, replacing the previous rectangle.
+---Restricts drawing (including cls) to its intersection with the canvas bounds.
+---Resets to the full canvas after a successful flip.
+---With no arguments, restore the active canvas bounds.
+---@overload fun()
+---@param x integer Coordinate from -32768 to 32767.
+---@param y integer Coordinate from -32768 to 32767.
+---@param w integer Width from 1 to 32767.
+---@param h integer Height from 1 to 32767.
+function gfx.clip(x, y, w, h) end
 
 ---Return the last sampled display presentation rate, or 0 before the first sample.
 ---@return number fps

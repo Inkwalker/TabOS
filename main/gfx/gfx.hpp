@@ -26,7 +26,7 @@ lua_vm::Module lua_module();
 // Returns nullptr before successful initialization.
 lgfx::PPA_Sprite* active_canvas();
 
-// Publish the drawn canvas, replacing any pending frame.
+// Publish the drawn canvas, replacing any pending frame, and reset its clip rectangle.
 esp_err_t swap_canvas();
 
 // Blocking PPA operations with clipping and software fallback. Drawing pixels

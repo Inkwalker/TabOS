@@ -15,6 +15,9 @@ local knight_sprite
 local sprite_transparent = gfx.rgb(255, 0, 255)
 local render_mode = 1
 local render_labels = {"Squares: ", "Sprites (spr): ", "Sprites (sspr): "}
+local clip_enabled = false
+local clip_size = 128
+local clip_x, clip_y = (gfx.width - clip_size) // 2, (gfx.height - clip_size) // 2
 
 local function beep()
     for voice = 1, 6 do
@@ -110,6 +113,7 @@ function update(dt)
     if input.keyp(1, 1) then os.exit(); return end
     update_beeps(dt)
     if input.keyp(3, 1) then toggle_render_mode() end -- Tab
+    if input.keyp(5, 5) then clip_enabled = not clip_enabled end -- C
     for key in input.txt():gmatch("[+%-]") do
         set_square_count(#rectangles + (key == "+" and 50 or -50))
     end
@@ -135,6 +139,7 @@ function update(dt)
     if dt > 0.01 then dt = 0.01 end
     local touches = input.touch()
     gfx.cls()
+    if clip_enabled then gfx.clip(clip_x, clip_y, clip_size, clip_size) end
     for i = 1, #rectangles do
         local rect = rectangles[i]
         if #touches > 0 then
@@ -164,6 +169,7 @@ function update(dt)
         end
     end
 
+    gfx.clip()
     local cpu_x = gfx.width - #cpu_label * glyph_width - 1
     gfx.color(0x0000)
     gfx.print(2, 2, fps_label)

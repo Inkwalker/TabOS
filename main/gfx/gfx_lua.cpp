@@ -219,6 +219,20 @@ int set_color(lua_State* state)
     return 0;
 }
 
+int clip(lua_State* state)
+{
+    if (lua_gettop(state) == 0) {
+        canvas(state).clearClipRect();
+        return 0;
+    }
+    const auto x = coordinate(state, 1);
+    const auto y = coordinate(state, 2);
+    const auto width = dimension(state, 3);
+    const auto height = dimension(state, 4);
+    canvas(state).setClipRect(x, y, width, height);
+    return 0;
+}
+
 int set_pixel(lua_State* state)
 {
     const auto x = coordinate(state, 1);
@@ -371,6 +385,7 @@ int push_gfx_table(lua_State* state)
         {"flip", swap_canvas},
         {"presenter_fps", presenter_fps},
         {"color", set_color},
+        {"clip", clip},
         {"rgb", rgb},
         {"pset", set_pixel},
         {"pget", get_pixel},

@@ -6,7 +6,9 @@ Drawing uses a 320 × 180 landscape canvas with origin `(0, 0)` at the top left.
 | --- | --- |
 | `gfx.width`, `gfx.height` | Canvas dimensions in pixels. |
 | `gfx.cls([color])` | Fill the canvas. Defaults to black. |
-| `gfx.flip()` | Submit a canvas copy for asynchronous display, replacing any pending frame. Leaves the canvas intact; raises an error on failure. |
+| `gfx.flip()` | Submit a canvas copy for asynchronous display, replacing any pending frame. Leaves pixels intact and resets the clip rectangle to the full canvas on success; raises an error on failure. |
+| `gfx.clip(x, y, w, h)` | Replace the active canvas clip rectangle. Restrict drawing, including `cls`, to its intersection with canvas bounds. Dimensions must be in 1–32767. |
+| `gfx.clip()` | Reset the clip rectangle to the active canvas size. |
 | `gfx.presenter_fps()` | Return the last sampled display presentation rate, or `0` before the first sample. |
 | `gfx.color(color)` | Set the current drawing color. |
 | `gfx.rgb(r, g, b)` | Pack three integer channels in 0–255 into an RGB565 integer. |

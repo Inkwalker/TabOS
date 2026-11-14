@@ -565,6 +565,7 @@ esp_err_t swap_canvas()
     frame_pending = true;
     portEXIT_CRITICAL(&mailbox_lock);
     xTaskNotifyGive(presenter);
+    drawing_canvas.clearClipRect();
     return ESP_OK;
 }
 
