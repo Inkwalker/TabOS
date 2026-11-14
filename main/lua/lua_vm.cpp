@@ -22,7 +22,7 @@ extern "C" {
 namespace lua_vm {
 namespace {
 constexpr const char* tag = "lua_vm";
-constexpr TickType_t updates_per_second = 60;
+constexpr TickType_t updates_per_second = 30;
 constexpr TickType_t ticks_per_second = configTICK_RATE_HZ;
 static_assert(ticks_per_second >= updates_per_second);
 

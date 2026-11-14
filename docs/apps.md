@@ -43,7 +43,7 @@ Define hooks as global functions. All are optional; only `save_state()` return v
 | Hook | Behavior |
 | --- | --- |
 | `init(state, explicit_args)` | Run after `app.lua` unless exit or suspension was requested. `state` is the saved table on resume, otherwise `nil`; `explicit_args` indicates new launch arguments. |
-| `update(dt)` | Run at a target of 60 Hz; `dt` is elapsed seconds. Without this hook, the app closes after initialization. |
+| `update(dt)` | Run at a target of 30 Hz; `dt` is elapsed seconds. Without this hook, the app closes after initialization. |
 | `save_state()` | On suspension, return a plain table or `nil`. Returning `nil, message` or an invalid payload, or raising an error, cancels suspension. |
 | `deinit(reason)` | Run once on close with `"exit"`, `"forced"` (**Ctrl+Esc**), `"error"`, or `"suspend"`. Cleanup errors are reported. |
 

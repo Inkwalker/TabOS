@@ -7,6 +7,7 @@
 #include <cstring>
 
 #include "gfx.hpp"
+#include "commands.hpp"
 #include "sprite.hpp"
 
 extern "C" {
@@ -22,6 +23,7 @@ constexpr const char* sprite_type = "gfx.Sprite";
 int release_sprite(lua_State* state)
 {
     auto** sprite = static_cast<Sprite**>(luaL_checkudata(state, 1, sprite_type));
+    if (*sprite) gfx::wait_commands();
     delete *sprite;
     *sprite = nullptr;
     return 0;
@@ -147,13 +149,14 @@ int spr(lua_State* state)
     const auto y = coordinate(state, 3);
     const bool flip_x = lua_toboolean(state, 5);
     const bool flip_y = lua_toboolean(state, 6);
+    const int32_t transparent = lua_isnoneornil(state, 4) ? -1 : check_color(state, 4);
     canvas(state);
-    if (lua_isnoneornil(state, 4)) {
-        gfx::draw_sprite(sprite.canvas, x, y, -1, flip_x, flip_y);
-    } else {
-        const auto transparent = check_color(state, 4);
-        gfx::draw_sprite(sprite.canvas, x, y, transparent, flip_x, flip_y);
-    }
+    DrawCommand command{DrawOp::sprite, {x, y}};
+    command.sprite = &sprite.canvas;
+    command.transparent = transparent;
+    command.flip_x = flip_x;
+    command.flip_y = flip_y;
+    enqueue(command);
     return 0;
 }
 
@@ -172,8 +175,12 @@ int sspr(lua_State* state)
     const bool flip_x = lua_toboolean(state, 11);
     const bool flip_y = lua_toboolean(state, 12);
     canvas(state);
-    gfx::draw_sprite_region(sprite.canvas, sx, sy, sw, sh, dx, dy, dw, dh,
-                            key, flip_x, flip_y);
+    DrawCommand command{DrawOp::sprite_region, {sx, sy, sw, sh, dx, dy, dw, dh}};
+    command.sprite = &sprite.canvas;
+    command.transparent = key;
+    command.flip_x = flip_x;
+    command.flip_y = flip_y;
+    enqueue(command);
     return 0;
 }
 
@@ -210,7 +217,9 @@ int clear(lua_State* state)
 {
     const uint16_t color = lua_isnoneornil(state, 1) ? 0 : check_color(state, 1);
     canvas(state);
-    gfx::fill_rect(0, 0, canvas_width, canvas_height, color);
+    DrawCommand command{DrawOp::fill_rect, {0, 0, canvas_width, canvas_height}};
+    command.color = color;
+    enqueue(command);
     return 0;
 }
 
@@ -223,14 +232,16 @@ int set_color(lua_State* state)
 int clip(lua_State* state)
 {
     if (lua_gettop(state) == 0) {
-        canvas(state).clearClipRect();
+        canvas(state);
+        enqueue(DrawCommand{DrawOp::reset_clip});
         return 0;
     }
     const auto x = coordinate(state, 1);
     const auto y = coordinate(state, 2);
     const auto width = dimension(state, 3);
     const auto height = dimension(state, 4);
-    canvas(state).setClipRect(x, y, width, height);
+    canvas(state);
+    enqueue(DrawCommand{DrawOp::clip, {x, y, width, height}});
     return 0;
 }
 
@@ -239,7 +250,10 @@ int set_pixel(lua_State* state)
     const auto x = coordinate(state, 1);
     const auto y = coordinate(state, 2);
     const auto color = drawing_color(state, 3);
-    canvas(state).drawPixel(x, y, color);
+    canvas(state);
+    DrawCommand command{DrawOp::pixel, {x, y}};
+    command.color = color;
+    enqueue(command);
     return 0;
 }
 
@@ -247,7 +261,10 @@ int get_pixel(lua_State* state)
 {
     const auto x = coordinate(state, 1);
     const auto y = coordinate(state, 2);
-    lua_pushinteger(state, canvas(state).readPixel(x, y));
+    canvas(state);
+    uint16_t pixel;
+    execute_and_wait(DrawCommand{DrawOp::pget, {x, y}}, &pixel);
+    lua_pushinteger(state, pixel);
     return 1;
 }
 
@@ -257,7 +274,10 @@ int circle(lua_State* state)
     const auto y = coordinate(state, 2);
     const auto radius = circle_radius(state);
     const auto color = drawing_color(state, 4);
-    canvas(state).drawCircle(x, y, radius, color);
+    canvas(state);
+    DrawCommand command{DrawOp::circle, {x, y, radius}};
+    command.color = color;
+    enqueue(command);
     return 0;
 }
 
@@ -267,7 +287,10 @@ int fill_circle(lua_State* state)
     const auto y = coordinate(state, 2);
     const auto radius = circle_radius(state);
     const auto color = drawing_color(state, 4);
-    canvas(state).fillCircle(x, y, radius, color);
+    canvas(state);
+    DrawCommand command{DrawOp::fill_circle, {x, y, radius}};
+    command.color = color;
+    enqueue(command);
     return 0;
 }
 
@@ -278,7 +301,10 @@ int ellipse(lua_State* state)
     const auto rx = ellipse_radius(state, 3);
     const auto ry = ellipse_radius(state, 4);
     const auto color = drawing_color(state, 5);
-    canvas(state).drawEllipse(x, y, rx, ry, color);
+    canvas(state);
+    DrawCommand command{DrawOp::ellipse, {x, y, rx, ry}};
+    command.color = color;
+    enqueue(command);
     return 0;
 }
 
@@ -289,7 +315,10 @@ int fill_ellipse(lua_State* state)
     const auto rx = ellipse_radius(state, 3);
     const auto ry = ellipse_radius(state, 4);
     const auto color = drawing_color(state, 5);
-    canvas(state).fillEllipse(x, y, rx, ry, color);
+    canvas(state);
+    DrawCommand command{DrawOp::fill_ellipse, {x, y, rx, ry}};
+    command.color = color;
+    enqueue(command);
     return 0;
 }
 
@@ -301,7 +330,9 @@ int fill_rect(lua_State* state)
     const auto height = dimension(state, 4);
     const auto color = drawing_color(state, 5);
     canvas(state);
-    gfx::fill_rect(x, y, width, height, color);
+    DrawCommand command{DrawOp::fill_rect, {x, y, width, height}};
+    command.color = color;
+    enqueue(command);
     return 0;
 }
 
@@ -312,7 +343,10 @@ int rect(lua_State* state)
     const auto width = dimension(state, 3);
     const auto height = dimension(state, 4);
     const auto color = drawing_color(state, 5);
-    canvas(state).drawRect(x, y, width, height, color);
+    canvas(state);
+    DrawCommand command{DrawOp::rect, {x, y, width, height}};
+    command.color = color;
+    enqueue(command);
     return 0;
 }
 
@@ -323,15 +357,10 @@ int line(lua_State* state)
     const auto x2 = coordinate(state, 3);
     const auto y2 = coordinate(state, 4);
     const auto color = drawing_color(state, 5);
-    auto& target = canvas(state);
-
-    if (y1 == y2) {
-        target.drawFastHLine(std::min(x1, x2), y1, std::abs(x2 - x1) + 1, color);
-    } else if (x1 == x2) {
-        target.drawFastVLine(x1, std::min(y1, y2), std::abs(y2 - y1) + 1, color);
-    } else {
-        target.drawLine(x1, y1, x2, y2, color);
-    }
+    canvas(state);
+    DrawCommand command{DrawOp::line, {x1, y1, x2, y2}};
+    command.color = color;
+    enqueue(command);
     return 0;
 }
 
@@ -354,7 +383,13 @@ int tline(lua_State* state)
     const double sdx = source_number(state, 8);
     const double sdy = source_number(state, 9);
     canvas(state);
-    gfx::draw_textured_line(sprite.canvas, x0, y0, x1, y1, sx, sy, sdx, sdy);
+    DrawCommand command{DrawOp::textured_line, {x0, y0, x1, y1}};
+    command.sprite = &sprite.canvas;
+    command.payload.source[0] = sx;
+    command.payload.source[1] = sy;
+    command.payload.source[2] = sdx;
+    command.payload.source[3] = sdy;
+    enqueue(command);
     return 0;
 }
 
@@ -365,16 +400,25 @@ int text(lua_State* state)
     size_t length;
     const auto* value = luaL_checklstring(state, 3, &length);
     const auto color = drawing_color(state, 4);
-    auto& target = canvas(state);
-    target.setTextColor(color);
-    target.setCursor(x, y);
-    target.write(reinterpret_cast<const uint8_t*>(value), length);
+    canvas(state);
+    DrawCommand command{DrawOp::text, {x, y}};
+    command.color = color;
+    // Queue-owned chunks never retain a pointer into the Lua heap.
+    do {
+        const size_t count = std::min(length, sizeof(command.payload.text));
+        std::memcpy(command.payload.text, value, count);
+        command.args[2] = static_cast<int>(count);
+        enqueue(command);
+        command.op = DrawOp::text_continue;
+        value += count;
+        length -= count;
+    } while (length);
     return 0;
 }
 int swap_canvas(lua_State* state)
 {
     canvas(state);
-    const auto result = gfx::swap_canvas();
+    const auto result = execute_and_wait(DrawCommand{DrawOp::flip});
     if (result != ESP_OK) {
         return luaL_error(state, "gfx.flip: canvas DMA transfer failed (%s)", esp_err_to_name(result));
     }
@@ -389,7 +433,7 @@ int presenter_fps(lua_State* state)
 
 int push_gfx_table(lua_State* state)
 {
-    const auto& target = canvas(state);
+    canvas(state);
     if (luaL_newmetatable(state, sprite_type)) {
         lua_pushcfunction(state, release_sprite);
         lua_setfield(state, -2, "__gc");
@@ -426,9 +470,9 @@ int push_gfx_table(lua_State* state)
     };
 
     luaL_newlib(state, functions);
-    lua_pushinteger(state, target.width());
+    lua_pushinteger(state, canvas_width);
     lua_setfield(state, -2, "width");
-    lua_pushinteger(state, target.height());
+    lua_pushinteger(state, canvas_height);
     lua_setfield(state, -2, "height");
     return 1;
 }

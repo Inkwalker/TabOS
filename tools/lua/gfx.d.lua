@@ -20,6 +20,7 @@ function Sprite:close() end
 ---TabOS drawing API. The canvas origin is the top-left corner (0, 0).
 ---Coordinates are integers from -32768 to 32767; colors are RGB565 (0–65535).
 ---Optional drawing colors default to the current color (initially white).
+---Drawing and clip calls enqueue work on core 0; a full buffer waits for space.
 gfx = {}
 
 ---@type integer
@@ -33,6 +34,7 @@ gfx.height = 180
 function gfx.cls(color) end
 
 ---Submit a copy of the canvas for asynchronous presentation.
+---Blocks until queued drawing and the canvas copy finish.
 ---Replaces any pending frame and leaves drawing pixels intact. Raises on failure.
 ---Resets the clip rectangle to the full canvas on success.
 function gfx.flip() end
@@ -72,6 +74,7 @@ function gfx.rgb(r, g, b) end
 function gfx.pset(x, y, color) end
 
 ---Read a pixel from the drawing canvas.
+---Blocks until all queued drawing has completed.
 ---@param x integer Coordinate from -32768 to 32767.
 ---@param y integer Coordinate from -32768 to 32767.
 ---@return integer color RGB565 color (0–65535).

@@ -6,7 +6,7 @@ Drawing uses a 320 × 180 landscape canvas with origin `(0, 0)` at the top left.
 | --- | --- |
 | `gfx.width`, `gfx.height` | Canvas dimensions in pixels. |
 | `gfx.cls([color])` | Fill the canvas. Defaults to black. |
-| `gfx.flip()` | Submit a canvas copy for asynchronous display, replacing any pending frame. Leaves pixels intact and resets the clip rectangle to the full canvas on success; raises an error on failure. |
+| `gfx.flip()` | Wait for queued drawing to finish, then submit a canvas copy for asynchronous display, replacing any pending frame. Leaves pixels intact and resets the clip rectangle to the full canvas on success; raises an error on failure. |
 | `gfx.clip(x, y, w, h)` | Replace the active canvas clip rectangle. Restrict drawing, including `cls`, to its intersection with canvas bounds. Dimensions must be in 1–32767. |
 | `gfx.clip()` | Reset the clip rectangle to the active canvas size. |
 | `gfx.presenter_fps()` | Return the last sampled display presentation rate, or `0` before the first sample. |
@@ -14,7 +14,7 @@ Drawing uses a 320 × 180 landscape canvas with origin `(0, 0)` at the top left.
 | `gfx.rgb(r, g, b)` | Pack three integer channels in 0–255 into an RGB565 integer. |
 | `gfx.rgb(color)` | Unpack RGB565 into three 8-bit channel values `r, g, b`. |
 | `gfx.pset(x, y [, color])` | Draw a pixel. |
-| `gfx.pget(x, y)` | Read a pixel from the drawing canvas as RGB565. |
+| `gfx.pget(x, y)` | Wait for queued drawing to finish, then read a pixel from the drawing canvas as RGB565. |
 | `gfx.circ(x, y, radius [, color])` | Draw a circle outline centered at `(x, y)`. |
 | `gfx.circfill(x, y, radius [, color])` | Draw a filled circle. |
 | `gfx.oval(x, y, rx, ry [, color])` | Draw an ellipse outline centered at `(x, y)`. |
@@ -40,3 +40,5 @@ Sprite drawing respects canvas bounds and the active clip rectangle without chan
 In `tline`, source positions and steps are required finite numbers and may be fractional. Source positions wrap independently at the sprite width and height, including negative positions and steps; each sample uses `floor` of the wrapped position. Sampling starts at `(x0, y0)` and advances toward `(x1, y1)`, even across clipped pixels. A zero-length line draws one sample. All sampled colors are drawn.
 
 Sprites are released by garbage collection, VM shutdown, `sprite:close()`, or a Lua `<close>` local. Using a closed sprite raises an error, except for repeated `close()` calls.
+
+Drawing and clip changes are copied into a bounded FIFO command buffer and executed on core 0. Calls return after enqueueing; a full buffer waits for space. `gfx.pget()` and `gfx.flip()` block until all preceding commands and their own operation have completed. Display scanout remains asynchronous. Colors are captured when a draw is enqueued. Text is copied into the buffer. Sprite loading stays on core 1; closing or collecting a sprite waits for queued drawing before releasing its pixels.

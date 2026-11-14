@@ -23,13 +23,14 @@ bool init();
 
 lua_vm::Module lua_module();
 
+// Renderer-only canvas access. Lua bindings enqueue canvas operations.
 // Returns nullptr before successful initialization.
 lgfx::PPA_Sprite* active_canvas();
 
-// Publish the drawn canvas, replacing any pending frame, and reset its clip rectangle.
+// Renderer-only: publish the canvas, replace pending frames and reset clipping.
 esp_err_t swap_canvas();
 
-// Blocking PPA operations with clipping and software fallback. Drawing pixels
+// Renderer-only blocking operations with clipping and software fallback. Drawing pixels
 // are ready for reads, subsequent software drawing, and flip() on return.
 void fill_rect(int x, int y, int width, int height, uint16_t color);
 void draw_sprite(lgfx::PPA_Sprite& sprite, int x, int y, int32_t transparent = -1,

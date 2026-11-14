@@ -1,5 +1,5 @@
 idf_component_register(SRCS "main.cpp" "lua/lua_vm.cpp" "lua/lua_memory.cpp" "gfx/gfx.cpp" "gfx/gfx_lua.cpp"
-                        "gfx/sprite.cpp"
+                        "gfx/sprite.cpp" "gfx/commands.cpp"
                         "system/system_lua.cpp" "input/input_lua.cpp"
                         "storage/storage.cpp" "storage/fs_lua.cpp" "storage/fs_table.cpp"
                         "audio/audio.cpp" "audio/audio_lua.cpp" "audio/sound.cpp"
@@ -20,7 +20,7 @@ fatfs_create_rawflash_image(
     FLASH_IN_PROJECT
 )
 
-set_source_files_properties(gfx/gfx.cpp PROPERTIES COMPILE_OPTIONS "-O3")
+set_source_files_properties(gfx/gfx.cpp gfx/commands.cpp PROPERTIES COMPILE_OPTIONS "-O3")
 set_source_files_properties(storage/fs_table.cpp PROPERTIES COMPILE_OPTIONS "-Os")
 
 # The VM wrapper and native Lua bindings are hot paths even in debug builds.

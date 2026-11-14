@@ -1,4 +1,5 @@
 #include "gfx.hpp"
+#include "commands.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -518,7 +519,9 @@ bool init()
         !setup_canvas(canvases[0], MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) ||
         !setup_canvas(canvases[1], MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) ||
         !init_submit_dma() ||
+        !start_commands() ||
         !start_presenter()) {
+        stop_commands();
         submit_dma.release();
         release_canvas(drawing_canvas);
         for (auto& canvas : canvases) {
@@ -744,6 +747,44 @@ void draw_textured_line(lgfx::PPA_Sprite& sprite, int x0, int y0, int x1, int y1
     if (left >= right || top >= bottom) return;
     const auto* pixels = static_cast<const uint16_t*>(sprite.getBuffer());
     auto* destination = static_cast<uint16_t*>(drawing_canvas.getBuffer());
+
+    if (y0 == y1 || x0 == x1) {
+        const bool horizontal = y0 == y1;
+        const int fixed = horizontal ? y0 : x0;
+        if (fixed < (horizontal ? top : left)
+            || fixed >= (horizontal ? bottom : right)) return;
+
+        const int first = horizontal ? x0 : y0;
+        const int last = horizontal ? x1 : y1;
+        const int lower = horizontal ? left : top;
+        const int upper = (horizontal ? right : bottom) - 1;
+        if (std::max(first, last) < lower || std::min(first, last) > upper) return;
+        const int start = std::clamp(first, lower, upper);
+        const int end = std::clamp(last, lower, upper);
+
+        // Keep the same floating-point accumulation as the general path,
+        // including the clipped prefix, so texel boundaries do not shift.
+        for (int skipped = std::abs(start - first); skipped > 0; --skipped) {
+            sx += sdx;
+            sy += sdy;
+            if (sx >= width) sx -= width;
+            if (sy >= height) sy -= height;
+        }
+        const int direction = first <= last ? 1 : -1;
+        const int stride = direction * (horizontal ? 1 : canvas_width);
+        const int offset = horizontal ? y0 * canvas_width + start : start * canvas_width + x0;
+        auto* out = destination + offset;
+        int remaining = std::abs(end - start) + 1;
+        for (;;) {
+            *out = pixels[static_cast<int>(sy) * width + static_cast<int>(sx)];
+            if (--remaining == 0) return;
+            out += stride;
+            sx += sdx;
+            sy += sdy;
+            if (sx >= width) sx -= width;
+            if (sy >= height) sy -= height;
+        }
+    }
 
     const int dx = std::abs(x1 - x0);
     const int dy = -std::abs(y1 - y0);
