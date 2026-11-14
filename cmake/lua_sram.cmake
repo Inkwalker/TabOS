@@ -1,0 +1,32 @@
+# Compile generated copies of the three allocation sites, leaving the managed
+# component unchanged. Original sources and the generator trigger reconfigure.
+idf_component_get_property(tabos_lua_dir espressif__lua COMPONENT_DIR)
+set(tabos_lua_generated "${CMAKE_BINARY_DIR}/lua_sram")
+set(tabos_lua_generator "${CMAKE_CURRENT_LIST_DIR}/../tools/prepare_lua_sram_sources.py")
+execute_process(COMMAND "${PYTHON}" "${tabos_lua_generator}"
+    --component-dir "${tabos_lua_dir}" --output-dir "${tabos_lua_generated}"
+    RESULT_VARIABLE tabos_lua_generate_status)
+if(NOT tabos_lua_generate_status EQUAL 0)
+    message(FATAL_ERROR "Could not prepare SRAM-priority Lua allocation sites")
+endif()
+
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${tabos_lua_generator}")
+get_target_property(tabos_lua_sources ${tabos_lua_lib} SOURCES)
+set(tabos_lua_replaced 0)
+set(tabos_lua_tagged_sources "")
+foreach(tabos_lua_source IN LISTS tabos_lua_sources)
+    get_filename_component(tabos_lua_absolute "${tabos_lua_source}" ABSOLUTE BASE_DIR "${tabos_lua_dir}")
+    get_filename_component(tabos_lua_name "${tabos_lua_source}" NAME)
+    if(tabos_lua_name MATCHES "^(lstate|lcode|lundump)\\.c$")
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${tabos_lua_absolute}")
+        list(APPEND tabos_lua_tagged_sources "${tabos_lua_generated}/${tabos_lua_name}")
+        math(EXPR tabos_lua_replaced "${tabos_lua_replaced} + 1")
+    else()
+        list(APPEND tabos_lua_tagged_sources "${tabos_lua_absolute}")
+    endif()
+endforeach()
+if(NOT tabos_lua_replaced EQUAL 3)
+    message(FATAL_ERROR "Expected three Lua allocation source files, found ${tabos_lua_replaced}")
+endif()
+set_property(TARGET ${tabos_lua_lib} PROPERTY SOURCES "${tabos_lua_tagged_sources}")
+target_include_directories(${tabos_lua_lib} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../main/lua")

@@ -9,3 +9,12 @@ idf_build_set_property(CONFIG_LGFX_PPA_USE_GFX ON)
 idf_build_set_property(CONFIG_LGFX_PPA_USE_LOVYANGFX OFF)
 idf_build_set_property(CONFIG_LGFX_PPA_USE_M5GFX ON)
 project(TabOS)
+
+# Optimize the Lua interpreter independently of the firmware's debug build.
+# Keep this override here so managed-component updates preserve it.
+idf_component_get_property(tabos_lua_lib espressif__lua COMPONENT_LIB)
+target_compile_options(${tabos_lua_lib} PRIVATE -O2)
+
+if(CONFIG_LUA_USE_PSRAM)
+    include(cmake/lua_sram.cmake)
+endif()
