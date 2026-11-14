@@ -131,6 +131,21 @@ function gfx.rectfill(x, y, width, height, color) end
 ---@param color? integer RGB565 color; defaults to the current drawing color.
 function gfx.line(x1, y1, x2, y2, color) end
 
+---Draw a textured line including both endpoints, from (x0, y0) toward (x1, y1).
+---Sample floor of the source position, wrapping both axes at sprite bounds.
+---Advance the source after each line pixel, including clipped pixels.
+---A zero-length line draws one sample; all sampled colors are drawn.
+---@param spr gfx.Sprite
+---@param x0 integer Coordinate from -32768 to 32767.
+---@param y0 integer Coordinate from -32768 to 32767.
+---@param x1 integer Coordinate from -32768 to 32767.
+---@param y1 integer Coordinate from -32768 to 32767.
+---@param sx number Finite source start X in pixels; may be fractional.
+---@param sy number Finite source start Y in pixels; may be fractional.
+---@param sdx number Finite source X step per line pixel; may be negative or fractional.
+---@param sdy number Finite source Y step per line pixel; may be negative or fractional.
+function gfx.tline(spr, x0, y0, x1, y1, sx, sy, sdx, sdy) end
+
 ---Draw text starting at (x, y), with automatic wrapping disabled.
 ---@param x integer Coordinate from -32768 to 32767.
 ---@param y integer Coordinate from -32768 to 32767.

@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <new>
@@ -711,6 +713,56 @@ void draw_sprite_region(lgfx::PPA_Sprite& sprite, int sx, int sy, int sw, int sh
             const auto color = source[source_x];
             if (transparent < 0 || color != key) out[column] = color;
         }
+    }
+}
+
+void draw_textured_line(lgfx::PPA_Sprite& sprite, int x0, int y0, int x1, int y1,
+                        double sx, double sy, double sdx, double sdy)
+{
+    const int width = sprite.width();
+    const int height = sprite.height();
+    if (width <= 0 || height <= 0 || !std::isfinite(sx) || !std::isfinite(sy)
+        || !std::isfinite(sdx) || !std::isfinite(sdy)) return;
+
+    // Reduce before adding so even very large finite inputs cannot overflow.
+    const auto wrap = [](double value, int size) {
+        double result = std::fmod(value, double(size));
+        if (result < 0) result += size;
+        return result < size ? result : 0.0;
+    };
+    sx = wrap(sx, width);
+    sy = wrap(sy, height);
+    sdx = wrap(sdx, width);
+    sdy = wrap(sdy, height);
+
+    int32_t clip_x, clip_y, clip_width, clip_height;
+    drawing_canvas.getClipRect(&clip_x, &clip_y, &clip_width, &clip_height);
+    const int left = std::max(0, int(clip_x));
+    const int top = std::max(0, int(clip_y));
+    const int right = std::min(canvas_width, int(clip_x + clip_width));
+    const int bottom = std::min(canvas_height, int(clip_y + clip_height));
+    if (left >= right || top >= bottom) return;
+    const auto* pixels = static_cast<const uint16_t*>(sprite.getBuffer());
+    auto* destination = static_cast<uint16_t*>(drawing_canvas.getBuffer());
+
+    const int dx = std::abs(x1 - x0);
+    const int dy = -std::abs(y1 - y0);
+    const int step_x = x0 < x1 ? 1 : -1;
+    const int step_y = y0 < y1 ? 1 : -1;
+    int error = dx + dy;
+    for (;;) {
+        if (x0 >= left && x0 < right && y0 >= top && y0 < bottom) {
+            destination[y0 * canvas_width + x0] =
+                pixels[static_cast<int>(sy) * width + static_cast<int>(sx)];
+        }
+        if (x0 == x1 && y0 == y1) break;
+        const int twice_error = 2 * error;
+        if (twice_error >= dy) { error += dy; x0 += step_x; }
+        if (twice_error <= dx) { error += dx; y0 += step_y; }
+        sx += sdx;
+        sy += sdy;
+        if (sx >= width) sx -= width;
+        if (sy >= height) sy -= height;
     }
 }
 

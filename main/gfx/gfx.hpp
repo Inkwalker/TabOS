@@ -41,6 +41,11 @@ void draw_sprite_region(lgfx::PPA_Sprite& sprite, int sx, int sy, int sw, int sh
                         int dx, int dy, int dw, int dh, int32_t transparent = -1,
                         bool flip_x = false, bool flip_y = false);
 
+// Inclusive textured line, sampled from the first endpoint toward the second.
+// Finite source coordinates/steps may be fractional and wrap at sprite bounds.
+void draw_textured_line(lgfx::PPA_Sprite& sprite, int x0, int y0, int x1, int y1,
+                        double sx, double sy, double sdx, double sdy);
+
 // Last sampled rate of confirmed framebuffer swaps, or zero before the first sample.
 float presenter_fps();
 

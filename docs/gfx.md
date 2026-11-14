@@ -22,6 +22,7 @@ Drawing uses a 320 × 180 landscape canvas with origin `(0, 0)` at the top left.
 | `gfx.rect(x, y, width, height [, color])` | Draw a rectangle outline from the top-left corner. |
 | `gfx.rectfill(x, y, width, height [, color])` | Draw a filled rectangle from the top-left corner. |
 | `gfx.line(x1, y1, x2, y2 [, color])` | Draw a line including both endpoints. |
+| `gfx.tline(spr, x0, y0, x1, y1, sx, sy, sdx, sdy)` | Draw a textured line including both endpoints, starting with sprite position `(sx, sy)` and advancing it by `(sdx, sdy)` per line pixel. |
 | `gfx.print(x, y, text [, color])` | Draw a string starting at `(x, y)` with automatic wrapping disabled. |
 | `gfx.load_sprite(path)` | Load a PNG at its native dimensions. Return a sprite object, or `nil, error` on failure. |
 | `gfx.spr(sprite, x, y [, transparent [, flip_x [, flip_y]]])` | Draw a sprite with its top-left at `(x, y)`. Optional `transparent` skips an RGB565 color. Mirror flags default to `false`. |
@@ -35,5 +36,7 @@ Circle radii are integers in 0–32767, ellipse radii in 0–512, and rectangle 
 Sprite and `sspr` dimensions must be in 1–32767. PNG transparency is flattened against black; sprites do not retain alpha.
 
 Sprite drawing respects canvas bounds and the active clip rectangle without changing the source. In `sspr`, samples outside the sprite leave destination pixels unchanged. Use `nil` to skip optional arguments before later ones.
+
+In `tline`, source positions and steps are required finite numbers and may be fractional. Source positions wrap independently at the sprite width and height, including negative positions and steps; each sample uses `floor` of the wrapped position. Sampling starts at `(x0, y0)` and advances toward `(x1, y1)`, even across clipped pixels. A zero-length line draws one sample. All sampled colors are drawn.
 
 Sprites are released by garbage collection, VM shutdown, `sprite:close()`, or a Lua `<close>` local. Using a closed sprite raises an error, except for repeated `close()` calls.

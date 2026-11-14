@@ -1,6 +1,7 @@
 #include "lua/module_definition.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -334,6 +335,29 @@ int line(lua_State* state)
     return 0;
 }
 
+double source_number(lua_State* state, int index)
+{
+    const double value = luaL_checknumber(state, index);
+    luaL_argcheck(state, std::isfinite(value), index, "expected a finite source coordinate or step");
+    return value;
+}
+
+int tline(lua_State* state)
+{
+    auto& sprite = check_sprite(state, 1);
+    const int x0 = coordinate(state, 2);
+    const int y0 = coordinate(state, 3);
+    const int x1 = coordinate(state, 4);
+    const int y1 = coordinate(state, 5);
+    const double sx = source_number(state, 6);
+    const double sy = source_number(state, 7);
+    const double sdx = source_number(state, 8);
+    const double sdy = source_number(state, 9);
+    canvas(state);
+    gfx::draw_textured_line(sprite.canvas, x0, y0, x1, y1, sx, sy, sdx, sdy);
+    return 0;
+}
+
 int text(lua_State* state)
 {
     const auto x = coordinate(state, 1);
@@ -396,6 +420,7 @@ int push_gfx_table(lua_State* state)
         {"rectfill", fill_rect},
         {"rect", rect},
         {"line", line},
+        {"tline", tline},
         {"print", text},
         {nullptr, nullptr},
     };
