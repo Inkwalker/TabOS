@@ -13,7 +13,8 @@ local attraction_strength = 2
 local beep_remaining = {}
 local knight_sprite
 local sprite_transparent = gfx.rgb(255, 0, 255)
-local render_sprites = false
+local render_mode = 1
+local render_labels = {"Squares: ", "Sprites (spr): ", "Sprites (sspr): "}
 
 local function beep()
     for voice = 1, 6 do
@@ -39,9 +40,9 @@ local function update_beeps(dt)
 end
 
 local function toggle_render_mode()
-    render_sprites = not render_sprites
-    width = render_sprites and knight_sprite.width or 32
-    height = render_sprites and knight_sprite.height or 32
+    render_mode = render_mode % 3 + 1
+    width = render_mode > 1 and knight_sprite.width or 32
+    height = render_mode > 1 and knight_sprite.height or 32
     max_x, max_y = gfx.width - width, gfx.height - height
     for _, rect in ipairs(rectangles) do
         rect.x = math.min(rect.x, max_x)
@@ -90,6 +91,7 @@ local function set_square_count(count)
             vx = math.random(60, 140) * (2 * math.random(0, 1) - 1),
             vy = math.random(60, 140) * (2 * math.random(0, 1) - 1),
             color = math.random(1, 0xffff),
+            flip_x = false,
         }
     end
 end
@@ -143,6 +145,7 @@ function update(dt)
         rect.y, rect.vy = move(rect.y, rect.vy, max_y, dt)
 
         if rect.vx ~= previous_vx or rect.vy ~= previous_vy then
+            rect.flip_x = not rect.flip_x
             beep()
             -- Choose a nonblack color distinct from the current one.
             local next_color = math.random(1, 0xfffe)
@@ -150,8 +153,11 @@ function update(dt)
             rect.color = next_color
         end
 
-        if render_sprites then
-            gfx.spr(knight_sprite, math.floor(rect.x), math.floor(rect.y), sprite_transparent)
+        if render_mode == 3 then
+            gfx.sspr(knight_sprite, 0, 0, width, height,
+                math.floor(rect.x), math.floor(rect.y), width, height, sprite_transparent, rect.flip_x)
+        elseif render_mode == 2 then
+            gfx.spr(knight_sprite, math.floor(rect.x), math.floor(rect.y), sprite_transparent, rect.flip_x)
         else
             gfx.color(rect.color)
             gfx.rectfill(math.floor(rect.x), math.floor(rect.y), width, height)
@@ -173,7 +179,7 @@ function update(dt)
         gfx.circ(touch.x, touch.y, 16, 0xffff)
     end
 
-    local count_label = (render_sprites and "Sprites: " or "Squares: ") .. #rectangles
+    local count_label = render_labels[render_mode] .. #rectangles
     local count_width = #count_label * glyph_width
     local count_x = gfx.width - count_width - 1
     gfx.rectfill(count_x - 1, count_y - 1, count_width + 2, 10, 0x0000)

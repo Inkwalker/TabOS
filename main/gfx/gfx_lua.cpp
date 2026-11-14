@@ -144,13 +144,35 @@ int spr(lua_State* state)
     auto& sprite = check_sprite(state, 1);
     const auto x = coordinate(state, 2);
     const auto y = coordinate(state, 3);
+    const bool flip_x = lua_toboolean(state, 5);
+    const bool flip_y = lua_toboolean(state, 6);
     canvas(state);
     if (lua_isnoneornil(state, 4)) {
-        gfx::draw_sprite(sprite.canvas, x, y);
+        gfx::draw_sprite(sprite.canvas, x, y, -1, flip_x, flip_y);
     } else {
         const auto transparent = check_color(state, 4);
-        gfx::draw_sprite(sprite.canvas, x, y, transparent);
+        gfx::draw_sprite(sprite.canvas, x, y, transparent, flip_x, flip_y);
     }
+    return 0;
+}
+
+int sspr(lua_State* state)
+{
+    auto& sprite = check_sprite(state, 1);
+    const auto sx = coordinate(state, 2);
+    const auto sy = coordinate(state, 3);
+    const auto sw = dimension(state, 4);
+    const auto sh = dimension(state, 5);
+    const auto dx = coordinate(state, 6);
+    const auto dy = coordinate(state, 7);
+    const auto dw = lua_isnoneornil(state, 8) ? sw : dimension(state, 8);
+    const auto dh = lua_isnoneornil(state, 9) ? sh : dimension(state, 9);
+    const int32_t key = lua_isnoneornil(state, 10) ? -1 : check_color(state, 10);
+    const bool flip_x = lua_toboolean(state, 11);
+    const bool flip_y = lua_toboolean(state, 12);
+    canvas(state);
+    gfx::draw_sprite_region(sprite.canvas, sx, sy, sw, sh, dx, dy, dw, dh,
+                            key, flip_x, flip_y);
     return 0;
 }
 
@@ -344,6 +366,7 @@ int push_gfx_table(lua_State* state)
     const luaL_Reg functions[] = {
         {"load_sprite", load_sprite},
         {"spr", spr},
+        {"sspr", sspr},
         {"cls", clear},
         {"flip", swap_canvas},
         {"presenter_fps", presenter_fps},

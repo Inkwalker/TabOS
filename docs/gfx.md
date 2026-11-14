@@ -2,13 +2,11 @@
 
 Drawing uses a 320 × 180 landscape canvas with origin `(0, 0)` at the top left. Coordinates are integers from −32768 to 32767. Colors are RGB565 integers from 0 to 65535. An optional drawing color defaults to the current color when omitted or `nil`. The initial drawing color is white.
 
-The drawing buffer and PNG sprites use LGFX_PPA's aligned `PPA_Sprite` storage. Clears and filled rectangles use M5GFX's CPU rasterizer. Sprite blits use the CPU below 4,096 visible pixels and PPA blend at or above that threshold, with CPU fallback if PPA is unavailable or fails. The visible area is calculated after clipping to the canvas, so a mostly off-screen large sprite can use the CPU path. Both paths preserve the optional RGB565 color key. PPA drawing finishes before each call returns, so pixel reads and subsequent drawing see the result immediately. Rectangle outlines, all lines, other primitives, and text use the software rasterizer. Presentation retains the asynchronous DMA path and exact 4× integer pixel expansion; PPA's bilinear scaling would change that output. The Lua API is unchanged.
-
 | API | Behavior |
 | --- | --- |
 | `gfx.width`, `gfx.height` | Canvas dimensions in pixels. |
 | `gfx.cls([color])` | Fill the canvas. Defaults to black. |
-| `gfx.flip()` | Submit a copy of the canvas for asynchronous presentation. Replaces any pending frame and leaves the drawing pixels intact. Raises an error if submission fails. |
+| `gfx.flip()` | Submit a canvas copy for asynchronous display, replacing any pending frame. Leaves the canvas intact; raises an error on failure. |
 | `gfx.presenter_fps()` | Return the last sampled display presentation rate, or `0` before the first sample. |
 | `gfx.color(color)` | Set the current drawing color. |
 | `gfx.rgb(r, g, b)` | Pack three integer channels in 0–255 into an RGB565 integer. |
@@ -24,15 +22,16 @@ The drawing buffer and PNG sprites use LGFX_PPA's aligned `PPA_Sprite` storage. 
 | `gfx.line(x1, y1, x2, y2 [, color])` | Draw a line including both endpoints. |
 | `gfx.print(x, y, text [, color])` | Draw a string starting at `(x, y)` with automatic wrapping disabled. |
 | `gfx.load_sprite(path)` | Load a PNG at its native dimensions. Return a sprite object, or `nil, error` on failure. |
-| `gfx.spr(sprite, x, y [, transparent])` | Draw a loaded sprite at `(x, y)`. Optional `transparent` is an RGB565 color key to skip. |
+| `gfx.spr(sprite, x, y [, transparent [, flip_x [, flip_y]]])` | Draw a sprite with its top-left at `(x, y)`. Optional `transparent` skips an RGB565 color. Mirror flags default to `false`. |
 | `sprite.width`, `sprite.height` | Read-only sprite dimensions in pixels. |
+| `gfx.sspr(sprite, sx, sy, sw, sh, dx, dy [, dw [, dh [, key [, flip_x [, flip_y]]]]])` | Draw a source rectangle at `(dx, dy)` with nearest-neighbor scaling. `dw` and `dh` default to `sw` and `sh`. Color key and mirror flags work as in `spr`. |
 | `sprite:pget(x, y)` | Read a sprite pixel as RGB565, relative to its top-left corner `(0, 0)`. |
 | `sprite:close()` | Release sprite memory. Closing more than once is safe. |
 
 Circle radii are integers in 0–32767, ellipse radii in 0–512, and rectangle dimensions in 1–32767. Drawing and setter calls return no values.
 
-Sprite dimensions must each be in 1–32767. Pixel storage requires approximately `width * height * 2` bytes, using PSRAM with internal RAM as a fallback. PNG transparency is flattened against black; sprites do not retain alpha.
+Sprite and `sspr` dimensions must be in 1–32767. PNG transparency is flattened against black; sprites do not retain alpha.
 
-Sprite memory is released by garbage collection, when the Lua VM closes, or explicitly with `sprite:close()` or a Lua `<close>` local. Drawing or reading dimensions or pixels after closing raises an error.
+Sprite drawing respects canvas bounds and the active clip rectangle without changing the source. In `sspr`, samples outside the sprite leave destination pixels unchanged. Use `nil` to skip optional arguments before later ones.
 
-For an on-device regression check, copy [tools/test_gfx.lua](../tools/test_gfx.lua) to the SD card and run it from the recovery shell. It verifies fill colors, CPU/PPA interoperability, sprite clipping and color keys around the dispatch threshold, and repeated sprite cleanup.
+Sprites are released by garbage collection, VM shutdown, `sprite:close()`, or a Lua `<close>` local. Using a closed sprite raises an error, except for repeated `close()` calls.

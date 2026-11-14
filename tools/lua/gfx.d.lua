@@ -139,4 +139,24 @@ function gfx.load_sprite(path) end
 ---@param x integer Coordinate from -32768 to 32767.
 ---@param y integer Coordinate from -32768 to 32767.
 ---@param transparent? integer RGB565 color key to skip; nil draws every pixel.
-function gfx.spr(sprite, x, y, transparent) end
+---@param flip_x? boolean Mirror horizontally during drawing; defaults to false.
+---@param flip_y? boolean Mirror vertically during drawing; defaults to false.
+function gfx.spr(sprite, x, y, transparent, flip_x, flip_y) end
+
+---Draw a source rectangle using CPU nearest-neighbor scaling (no PPA).
+---Respects the destination clip rectangle without changing sampling.
+---Samples outside the sprite leave the destination unchanged; source stays unchanged.
+---Use nil placeholders to skip optional arguments before later arguments.
+---@param sprite gfx.Sprite
+---@param sx integer Source left coordinate (-32768 to 32767).
+---@param sy integer Source top coordinate (-32768 to 32767).
+---@param sw integer Source width (1 to 32767).
+---@param sh integer Source height (1 to 32767).
+---@param dx integer Destination left coordinate (-32768 to 32767).
+---@param dy integer Destination top coordinate (-32768 to 32767).
+---@param dw? integer Destination width (1 to 32767); defaults to sw.
+---@param dh? integer Destination height (1 to 32767); defaults to sh.
+---@param key? integer RGB565 color key to skip; nil draws every pixel.
+---@param flip_x? boolean Mirror the source rectangle horizontally; defaults to false.
+---@param flip_y? boolean Mirror the source rectangle vertically; defaults to false.
+function gfx.sspr(sprite, sx, sy, sw, sh, dx, dy, dw, dh, key, flip_x, flip_y) end

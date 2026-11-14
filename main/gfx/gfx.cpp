@@ -581,19 +581,23 @@ void fill_rect(int x, int y, int width, int height, uint16_t color)
     drawing_canvas.fillRect(x, y, width, height, color);
 }
 
-void draw_sprite(lgfx::PPA_Sprite& sprite, int x, int y, int32_t transparent)
+void draw_sprite(lgfx::PPA_Sprite& sprite, int x, int y, int32_t transparent,
+                 bool flip_x, bool flip_y)
 {
-    const int source_x = std::max(0, -x);
-    const int source_y = std::max(0, -y);
-    const int width = std::min<int>(sprite.width() - source_x, canvas_width - std::max(0, x));
-    const int height = std::min<int>(sprite.height() - source_y, canvas_height - std::max(0, y));
+    int32_t clip_x, clip_y, clip_width, clip_height;
+    drawing_canvas.getClipRect(&clip_x, &clip_y, &clip_width, &clip_height);
+    const int destination_x = std::max({0, x, int(clip_x)});
+    const int destination_y = std::max({0, y, int(clip_y)});
+    const int right = std::min({canvas_width, x + int(sprite.width()), int(clip_x + clip_width)});
+    const int bottom = std::min({canvas_height, y + int(sprite.height()), int(clip_y + clip_height)});
+    const int width = right - destination_x;
+    const int height = bottom - destination_y;
     if (width <= 0 || height <= 0) return;
-    const int destination_x = std::max(0, x);
-    const int destination_y = std::max(0, y);
-
-    // Small visible blocks are faster with M5GFX's CPU rasterizer. Use the
-    // clipped area so mostly off-screen sprites avoid PPA setup overhead too.
-    if (ppa_blend && width * height >= ppa_sprite_min_pixels) {
+    const int source_x = destination_x - x;
+    const int source_y = destination_y - y;
+    // Reserve PPA for large unflipped visible blocks; all other blits use
+    // the shared CPU loop below, including when PPA is unavailable or fails.
+    if (!flip_x && !flip_y && ppa_blend && width * height >= ppa_sprite_min_pixels) {
         // The library's convenience blend API requires equal-size pictures.
         // Configure the clipped blocks explicitly to support arbitrary sprites.
         auto config = ppa_blend->config();
@@ -640,10 +644,72 @@ void draw_sprite(lgfx::PPA_Sprite& sprite, int x, int y, int32_t transparent)
         }
         if (ppa_blend->exec(&config)) return;
     }
-    if (transparent < 0) {
-        sprite.pushSprite(&drawing_canvas, x, y);
-    } else {
-        sprite.pushSprite(&drawing_canvas, x, y, static_cast<uint16_t>(transparent));
+    // Both buffers use tightly packed native-endian RGB565. Mirror the
+    // source coordinates after clipping; never modify the source pixels.
+    const auto* pixels = static_cast<const uint16_t*>(sprite.getBuffer());
+    auto* destination = static_cast<uint16_t*>(drawing_canvas.getBuffer());
+    const int first_x = flip_x ? sprite.width() - 1 - source_x : source_x;
+    const int first_y = flip_y ? sprite.height() - 1 - source_y : source_y;
+    const int step_x = flip_x ? -1 : 1;
+    const int step_y = flip_y ? -1 : 1;
+    for (int row = 0; row < height; ++row) {
+        const auto* source = pixels + (first_y + row * step_y) * sprite.width() + first_x;
+        auto* out = destination + (destination_y + row) * canvas_width + destination_x;
+        if (transparent < 0) {
+            if (!flip_x) {
+                std::memcpy(out, source, width * sizeof(uint16_t));
+            } else {
+                for (int column = 0; column < width; ++column) out[column] = source[-column];
+            }
+        } else {
+            const auto key = static_cast<uint16_t>(transparent);
+            for (int column = 0; column < width; ++column) {
+                const auto color = source[column * step_x];
+                if (color != key) out[column] = color;
+            }
+        }
+    }
+}
+
+void draw_sprite_region(lgfx::PPA_Sprite& sprite, int sx, int sy, int sw, int sh,
+                        int dx, int dy, int dw, int dh, int32_t transparent,
+                        bool flip_x, bool flip_y)
+{
+    if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) return;
+    int32_t clip_x, clip_y, clip_width, clip_height;
+    drawing_canvas.getClipRect(&clip_x, &clip_y, &clip_width, &clip_height);
+    const int left = std::max({0, dx, int(clip_x)});
+    const int top = std::max({0, dy, int(clip_y)});
+    const int right = std::min({int64_t(canvas_width), int64_t(dx) + dw,
+                                int64_t(clip_x) + clip_width});
+    const int bottom = std::min({int64_t(canvas_height), int64_t(dy) + dh,
+                                 int64_t(clip_y) + clip_height});
+    if (left >= right || top >= bottom) return;
+
+    // Compute the horizontal mapping once, keeping division out of the pixel
+    // loop. Mirror within the requested source rectangle before bounds checks.
+    int source_columns[canvas_width];
+    for (int x = left; x < right; ++x) {
+        const int sample = (int64_t(x) - dx) * sw / dw;
+        const int64_t source_x = int64_t(sx) + (flip_x ? sw - 1 - sample : sample);
+        source_columns[x - left] = source_x >= 0 && source_x < sprite.width()
+                                     ? static_cast<int>(source_x) : -1;
+    }
+    const auto* pixels = static_cast<const uint16_t*>(sprite.getBuffer());
+    auto* destination = static_cast<uint16_t*>(drawing_canvas.getBuffer());
+    const auto key = static_cast<uint16_t>(transparent);
+    for (int y = top; y < bottom; ++y) {
+        const int sample = (int64_t(y) - dy) * sh / dh;
+        const int64_t source_y = int64_t(sy) + (flip_y ? sh - 1 - sample : sample);
+        if (source_y < 0 || source_y >= sprite.height()) continue;
+        const auto* source = pixels + source_y * sprite.width();
+        auto* out = destination + y * canvas_width + left;
+        for (int column = 0; column < right - left; ++column) {
+            const int source_x = source_columns[column];
+            if (source_x < 0) continue;
+            const auto color = source[source_x];
+            if (transparent < 0 || color != key) out[column] = color;
+        }
     }
 }
 

@@ -32,7 +32,14 @@ esp_err_t swap_canvas();
 // Blocking PPA operations with clipping and software fallback. Drawing pixels
 // are ready for reads, subsequent software drawing, and flip() on return.
 void fill_rect(int x, int y, int width, int height, uint16_t color);
-void draw_sprite(lgfx::PPA_Sprite& sprite, int x, int y, int32_t transparent = -1);
+void draw_sprite(lgfx::PPA_Sprite& sprite, int x, int y, int32_t transparent = -1,
+                 bool flip_x = false, bool flip_y = false);
+
+// CPU-only nearest-neighbor sprite region blit. Out-of-bounds source samples
+// are skipped; destination clipping does not change the sampling transform.
+void draw_sprite_region(lgfx::PPA_Sprite& sprite, int sx, int sy, int sw, int sh,
+                        int dx, int dy, int dw, int dh, int32_t transparent = -1,
+                        bool flip_x = false, bool flip_y = false);
 
 // Last sampled rate of confirmed framebuffer swaps, or zero before the first sample.
 float presenter_fps();
