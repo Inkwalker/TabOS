@@ -144,7 +144,21 @@ int is_charging(lua_State* state)
     return 1;
 }
 
-int sleep(lua_State* state)
+int shutdown(lua_State*)
+{
+    M5.Power.powerOff();
+    return 0;
+}
+
+int sleep(lua_State*)
+{
+    // Tab5 TDDI panels share display and touch control. Keep the panel awake
+    // for touch wake, and preserve M5GFX's stored brightness for wakeup().
+    M5.Display.getPanel()->setBrightness(0);
+    return 0;
+}
+
+int wait(lua_State* state)
 {
     const auto milliseconds = luaL_checkinteger(state, 1);
     luaL_argcheck(state, milliseconds >= 0 && milliseconds <= 60000, 1, "expected milliseconds 0..60000");
@@ -152,6 +166,25 @@ int sleep(lua_State* state)
         vTaskDelay((milliseconds * configTICK_RATE_HZ + 999) / 1000);
     }
     return 0;
+}
+
+int wakeup(lua_State*)
+{
+    M5.Display.wakeup();
+    return 0;
+}
+
+int set_brightness(lua_State* state)
+{
+    const auto brightness = check_range(state, 1, 0, 255, "expected brightness in 0..255");
+    M5.Display.setBrightness(brightness);
+    return 0;
+}
+
+int get_brightness(lua_State* state)
+{
+    lua_pushinteger(state, M5.Display.getBrightness());
+    return 1;
 }
 
 int get_time(lua_State* state)
@@ -196,7 +229,12 @@ int push_system_table(lua_State* state)
         {"cpu_load", cpu_load},
         {"bat_lvl", battery_level},
         {"bat_chrg", is_charging},
+        {"shutdown", shutdown},
         {"sleep", sleep},
+        {"wait", wait},
+        {"wakeup", wakeup},
+        {"set_brightness", set_brightness},
+        {"get_brightness", get_brightness},
         {"get_time", get_time},
         {"set_time", set_time},
         {nullptr, nullptr},

@@ -1,6 +1,6 @@
 ---@meta
 
----TabOS keyboard LEDs, system metrics, and clock.
+---TabOS power, display, keyboard LEDs, system metrics, and clock.
 sys = {}
 
 ---Set a keyboard LED. Returns whether the hardware update succeeded.
@@ -40,9 +40,26 @@ function sys.bat_lvl() end
 ---@return boolean? charging
 function sys.bat_chrg() end
 
+---Request device power-off.
+function sys.shutdown() end
+
+---Turn off the backlight, preserving stored brightness and keeping touch active.
+function sys.sleep() end
+
 ---Pause the Lua task for approximately the requested milliseconds (scheduler tick resolution).
 ---@param milliseconds integer Duration (0–60000); 0 returns immediately.
-function sys.sleep(milliseconds) end
+function sys.wait(milliseconds) end
+
+---Wake the screen and restore its stored brightness.
+function sys.wakeup() end
+
+---Set screen backlight brightness. Invalid values raise an error.
+---@param brightness integer Brightness (0–255); 0 turns the backlight off.
+function sys.set_brightness(brightness) end
+
+---Return the stored screen brightness setting, including while the screen sleeps.
+---@return integer brightness Brightness (0–255).
+function sys.get_brightness() end
 
 ---Return the system clock as Unix seconds.
 ---@return integer timestamp

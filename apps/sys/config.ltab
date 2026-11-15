@@ -1,0 +1,8 @@
+{
+    -- Enable only when a battery is installed.
+    auto_shutdown = true,
+    dim_after_seconds = 60,
+    sleep_after_seconds = 180,
+    brightness = 128,
+    dim_brightness = 32,
+}

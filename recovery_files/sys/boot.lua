@@ -31,7 +31,7 @@ for elapsed = 0, 2975, 25 do
             beep_until = elapsed + 100
         end
     end
-    sys.sleep(25)
+    sys.wait(25)
 end
 -- A press near the end of the window gets a shorter beep before handoff.
 if beep_until then audio.stop(1) end

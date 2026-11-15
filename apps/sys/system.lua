@@ -2,8 +2,11 @@
 package.path = package.path .. ";/rec/sys/?.lua"
 local raw_input = input
 local input = require("input_gate").new(raw_input)
+local config = fs.read_table("/sd/sys/config.ltab") or {}
+local idle = require("idle").new(raw_input, input, config)
 local clock = require("widgets.clock")
 local battery = require("widgets.battery")
+local battery_monitor = require("battery_monitor")
 local apps, targets = {}, {}
 local page = 1
 local message
@@ -39,7 +42,8 @@ local runner = require("app_runner").new(raw_input, show_error)
 
 local function refresh_status()
     local clock_changed = clock.refresh()
-    local battery_changed = battery.refresh()
+    local battery_changed, level, charging = battery.refresh()
+    battery_monitor.update(level, charging, config.auto_shutdown)
     status_elapsed = 0
     return clock_changed or battery_changed
 end
@@ -234,6 +238,11 @@ end
 
 function update(dt)
     input.update()
+    if idle.update(dt, runner:active()) then
+        touch_held, pressed = true, nil
+    end
+    status_elapsed = status_elapsed + dt
+    local dirty = status_elapsed >= 0.5 and refresh_status()
     if runner:active() then
         runner:update(dt)
         if not runner:active() then
@@ -247,8 +256,6 @@ function update(dt)
         return
     end
     input.txt() -- The launcher has no text input; do not accumulate keystrokes.
-    status_elapsed = status_elapsed + dt
-    local dirty = status_elapsed >= 0.5 and refresh_status()
     local contacts = input.touch()
     if #contacts > 0 then
         local contact = contacts[1]

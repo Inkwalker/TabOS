@@ -17,7 +17,7 @@ function battery.refresh()
 
     local changed = new_level ~= level or new_charging ~= charging
     level, charging = new_level, new_charging
-    return changed
+    return changed, level, charging
 end
 
 function battery.draw(x, y, color)
