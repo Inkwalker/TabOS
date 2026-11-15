@@ -125,5 +125,4 @@ return function(game, fps_label, background_time)
     if message then
         gfx.print(math.floor((config.width - #message * 6) / 2), math.floor(config.height / 2), message, white)
     end
-    gfx.flip()
 end

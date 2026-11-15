@@ -125,6 +125,5 @@ function update(dt)
     gfx.cls()
     draw_rain(elapsed)
     draw_clock(elapsed)
-    gfx.flip()
     elapsed = 0
 end

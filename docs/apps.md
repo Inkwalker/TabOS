@@ -47,7 +47,7 @@ Define hooks as global functions. All are optional; only `save_state()` return v
 | `save_state()` | On suspension, return a plain table or `nil`. Returning `nil, message` or an invalid payload, or raising an error, cancels suspension. |
 | `deinit(reason)` | Run once on close with `"exit"`, `"forced"` (**Ctrl+Esc**), `"error"`, or `"suspend"`. Cleanup errors are reported. |
 
-The shell polls input and blocks keys and touches held across transitions until release. Call `gfx.flip()` to present each frame.
+The shell polls input and blocks keys and touches held across transitions until release. The Lua shell presents the canvas with `gfx.flip()` at the end of each update, after app and shell drawing. Apps do not need to call it. Canvas pixels persist between updates; clipping resets after presentation.
 
 ## Suspension and resume
 

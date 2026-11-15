@@ -2,6 +2,8 @@
 
 Drawing starts with a 320 × 180 landscape canvas with origin `(0, 0)` at the top left. Coordinates are integers from −32768 to 32767. Colors are RGB565 integers from 0 to 65535. An optional drawing color defaults to the current color when omitted or `nil`. The initial drawing color is white.
 
+The Lua shell calls `gfx.flip()` at the end of each update, after app and shell drawing. Apps do not need to present frames themselves. Explicit calls remain available, including `gfx.flip(sprite)` for saving canvas pixels.
+
 | API | Behavior |
 | --- | --- |
 | `gfx.width`, `gfx.height` | Active canvas dimensions in pixels. |

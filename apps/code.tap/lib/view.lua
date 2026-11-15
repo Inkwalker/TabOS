@@ -376,7 +376,6 @@ function View.draw(state)
             state.targets = {}
             draw_dialog(state)
         end
-        gfx.flip()
         return
     end
     local tab = state.tabs:current()
@@ -398,7 +397,6 @@ function View.draw(state)
         elseif state.mode == "find" then draw_find(state)
         else draw_dialog(state) end
     end
-    gfx.flip()
 end
 
 return View

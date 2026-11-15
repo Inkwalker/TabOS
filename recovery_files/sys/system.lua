@@ -358,7 +358,6 @@ local function draw()
         local visible_rows = math.min(#lines, output_rows)
         gfx.print(1, 5 + (visible_rows + 1) * row_height, prompt:sub(-columns), text_color)
     end
-    gfx.flip()
 end
 
 function init()
@@ -371,7 +370,7 @@ function init()
     draw()
 end
 
-function update(dt)
+local function update_system(dt)
     input.update()
     if runner:active() then
         runner:update(dt)
@@ -429,4 +428,10 @@ function update(dt)
     end
     advance_output(0)
     draw()
+end
+
+-- Keep presentation in the OS, after app drawing and any shell overlays.
+function update(dt)
+    update_system(dt)
+    gfx.flip()
 end

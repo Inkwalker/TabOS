@@ -38,7 +38,6 @@ local function draw()
         gfx.print(x + 4, piano_y + 58, note.name, background)
     end
 
-    gfx.flip()
 end
 
 local function play_keys()

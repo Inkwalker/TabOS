@@ -190,7 +190,6 @@ function update(dt)
     local count_x = gfx.width - count_width - 1
     gfx.rectfill(count_x - 1, count_y - 1, count_width + 2, 10, 0x0000)
     gfx.print(count_x, count_y, count_label, 0xffff)
-    gfx.flip()
     collectgarbage("step")
 end
 

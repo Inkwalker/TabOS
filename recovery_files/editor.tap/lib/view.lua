@@ -82,7 +82,6 @@ function View.draw(doc, state)
         gfx.print((gfx.width - #title * 6) // 2, y + 13, title, foreground)
         gfx.print((gfx.width - #actions * 6) // 2, y + 35, actions, foreground)
     end
-    gfx.flip()
 end
 
 return View

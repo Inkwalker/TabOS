@@ -220,7 +220,6 @@ local function draw()
         end
         gfx.print(16, gfx.height - 48, "Tap to dismiss", colors.accent)
     end
-    gfx.flip()
 end
 
 local function restore_shell()
@@ -236,7 +235,7 @@ function init()
     restore_shell()
 end
 
-function update(dt)
+local function update_system(dt)
     input.update()
     if idle.update(dt, runner:active()) then
         touch_held, pressed = true, nil
@@ -251,7 +250,6 @@ function update(dt)
             -- Rejection leaves the app alive; show its reason above the app's frame.
             gfx.rectfill(0, 0, gfx.width, 16, colors.panel)
             gfx.print(4, 4, shortened(message:gsub("[%c]", " "), math.floor((gfx.width - 8) / 6)), colors.error)
-            gfx.flip()
         end
         return
     end
@@ -313,4 +311,10 @@ function update(dt)
         end
     end
     if dirty then draw() end
+end
+
+-- Keep presentation in the OS, after app drawing and any shell overlays.
+function update(dt)
+    update_system(dt)
+    gfx.flip()
 end
