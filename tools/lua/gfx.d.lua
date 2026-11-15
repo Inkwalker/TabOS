@@ -51,8 +51,9 @@ function gfx.cls(color) end
 ---@param height integer
 function gfx.target(width, height) end
 
+---The Lua shell presents the canvas at the end of each update; apps need not call this.
 ---Present the canvas at the screen's top left, clipping excess pixels and
----preserving the screen outside its bounds. Uses the usual 4x display scaling.
+---filling unused screen pixels with black. Uses the usual 4x display scaling.
 ---With a sprite, save all canvas pixels to it instead, requiring matching dimensions.
 ---Blocks until queued drawing and the canvas copy finish.
 ---Screen presentation replaces any pending frame. Drawing pixels stay intact.

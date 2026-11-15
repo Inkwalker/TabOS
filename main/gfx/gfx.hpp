@@ -28,7 +28,7 @@ lua_vm::Module lua_module();
 // Returns nullptr before successful initialization.
 lgfx::PPA_Sprite* active_canvas();
 
-// Renderer-only: overlay the canvas on the retained screen, publish and reset clipping.
+// Renderer-only: snapshot the active canvas for the presenter and reset clipping.
 esp_err_t swap_canvas();
 // Renderer-only: discard pixels, reset clipping and resize the shared SRAM canvas.
 esp_err_t select_target(int width, int height);

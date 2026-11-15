@@ -10,7 +10,7 @@ The Lua shell calls `gfx.flip()` at the end of each update, after app and shell 
 | `gfx.target(width, height)` | Wait for preceding commands, discard the previous canvas, and select a fresh black canvas. Reset clipping and the text cursor. Dimensions must be in 1–32767 and `width * height` must be at most 65536. |
 | `gfx.target()` | Select a fresh black 320 × 180 canvas, discarding the previous canvas. |
 | `gfx.cls([color])` | Fill the canvas. Defaults to black. |
-| `gfx.flip()` | Wait for queued drawing, then copy the active canvas into the retained 320 × 180 screen image at its top-left corner. Clip excess pixels and preserve the screen outside the canvas. Submit the screen image for asynchronous display, replacing any pending frame. Leave canvas pixels intact and reset clipping on success. Raise an error on failure. |
+| `gfx.flip()` | Wait for queued drawing, then copy the active canvas into a 320 × 180 PSRAM mailbox for asynchronous display, replacing any pending frame. Place pixels at the top-left corner, clip excess pixels, and fill unused pixels with black. Leave canvas pixels intact and reset clipping on success. Raise an error on failure. |
 | `gfx.flip(sprite)` | Wait for queued drawing, then save all canvas pixels to an equally sized sprite. Leave canvas pixels intact and reset clipping. Raise an error for a closed or differently sized sprite. |
 | `gfx.clip(x, y, w, h)` | Replace the active canvas clip rectangle. Restrict drawing, including `cls`, to its intersection with canvas bounds. Dimensions must be in 1–32767. |
 | `gfx.clip()` | Reset the clip rectangle to the active canvas size. |
@@ -48,6 +48,6 @@ In `tline`, source positions and steps are required finite numbers and may be fr
 
 Sprites are released by garbage collection, VM shutdown, `sprite:close()`, or a Lua `<close>` local. Using a closed sprite raises an error, except for repeated `close()` calls.
 
-All temporary canvases reuse one dedicated 128 KiB SRAM pixel buffer. Selecting a target always clears its pixels, even when its dimensions match the previous target. Drawing color remains global. Sprites and the retained screen image live in PSRAM. Display presentation uses the existing 4× scaling. Saving to a sprite leaves the retained screen image unchanged.
+All temporary canvases reuse one dedicated 128 KiB SRAM pixel buffer. Selecting a target always clears its pixels, even when its dimensions match the previous target. Drawing color remains global. Sprites and the two fixed 320 × 180 presentation mailboxes live in PSRAM. Each flip copies the visible canvas pixels and fills the remaining mailbox pixels with black. All canvas sizes use the existing 4× DMA presentation path, with CPU fallback if DMA is unavailable. Saving to a sprite leaves the displayed image unchanged.
 
 Drawing and clip changes are copied into a bounded FIFO command buffer and executed on core 0. Calls return after enqueueing; a full buffer waits for space. `gfx.target()`, `gfx.pget()` and both forms of `gfx.flip()` block until all preceding commands and their own operation have completed. Display scanout remains asynchronous. Colors are captured when a draw is enqueued. Text is copied into the buffer. Sprite loading stays on core 1; closing or collecting a sprite waits for queued drawing before releasing its pixels.

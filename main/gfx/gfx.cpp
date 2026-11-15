@@ -209,7 +209,6 @@ esp_err_t CopyDma::configure(size_t source_items, size_t size, size_t tx_burst)
 
     gdma_transfer_config_t config{};
     config.max_data_burst_size = tx_burst;
-    config.access_ext_mem = true;
     ESP_RETURN_ON_ERROR(gdma_config_transfer(tx_, &config), tag, "configure TX burst");
     config.max_data_burst_size = rx_burst_bytes;
     config.access_ext_mem = true;
@@ -341,7 +340,8 @@ esp_err_t copy_frame_dma(const uint16_t* pixels, CopyDma& dma, uint8_t* framebuf
     return ESP_OK;
 }
 
-void copy_to_screen(const lgfx::PPA_Sprite& canvas, ScreenTransfer& transfer, uint8_t* framebuffer)
+esp_err_t copy_to_screen(const lgfx::PPA_Sprite& canvas, ScreenTransfer& transfer,
+                          uint8_t* framebuffer)
 {
     const auto* pixels = static_cast<const uint16_t*>(canvas.getBuffer());
     if (transfer.copy_dma.available()) {
@@ -349,7 +349,7 @@ void copy_to_screen(const lgfx::PPA_Sprite& canvas, ScreenTransfer& transfer, ui
         if (result == ESP_OK) {
             // Match the IDF async-copy driver's PSRAM barrier before publishing DMA writes.
             esp_psram_mspi_mb();
-            return;
+            return ESP_OK;
         }
 
         ESP_LOGW(tag, "Copy DMA failed (%s); using CPU copy", esp_err_to_name(result));
@@ -366,6 +366,7 @@ void copy_to_screen(const lgfx::PPA_Sprite& canvas, ScreenTransfer& transfer, ui
             }
         }
     }
+    return esp_cache_msync(framebuffer, framebuffer_bytes, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
 }
 
 void present_framebuffer(ScreenTransfer& transfer, const uint8_t* framebuffer)
@@ -404,7 +405,6 @@ void present_framebuffer(ScreenTransfer& transfer, const uint8_t* framebuffer)
 constexpr size_t canvas_bytes = canvas_width * canvas_height * sizeof(uint16_t);
 static_assert(canvas_bytes % dma_alignment == 0);
 lgfx::PPA_Sprite drawing_canvas;
-lgfx::PPA_Sprite screen_canvas;
 lgfx::PPA_Sprite canvases[2];
 std::unique_ptr<lgfx::PPABlend> ppa_blend;
 CopyDma submit_dma;
@@ -431,7 +431,11 @@ void present_frames(void*)
         }
 
         auto* framebuffer = transfer.framebuffers[transfer.back_index];
-        copy_to_screen(canvases[presenter_index], transfer, framebuffer);
+        const auto result = copy_to_screen(canvases[presenter_index], transfer, framebuffer);
+        if (result != ESP_OK) {
+            ESP_LOGE(tag, "Framebuffer copy failed (%s)", esp_err_to_name(result));
+            continue;
+        }
         present_framebuffer(transfer, framebuffer);
     }
 }
@@ -494,7 +498,7 @@ void release_canvas(lgfx::PPA_Sprite& canvas)
 bool init_submit_dma()
 {
     // Keep the descriptor lists for the lifetime of the canvas, including across flips.
-    const auto result = submit_dma.init_canvas(screen_canvas.getBuffer(), canvas_bytes);
+    const auto result = submit_dma.init_canvas(drawing_canvas.getBuffer(), canvas_bytes);
     if (result != ESP_OK) {
         ESP_LOGE(tag, "Could not initialize canvas DMA (%s)", esp_err_to_name(result));
     }
@@ -519,7 +523,6 @@ bool init()
     }
     if (!setup_canvas(drawing_canvas, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT,
                       target_capacity) ||
-        !setup_canvas(screen_canvas, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) ||
         !setup_canvas(canvases[0], MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) ||
         !setup_canvas(canvases[1], MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) ||
         !init_submit_dma() ||
@@ -528,7 +531,6 @@ bool init()
         stop_commands();
         submit_dma.release();
         release_canvas(drawing_canvas);
-        release_canvas(screen_canvas);
         for (auto& canvas : canvases) {
             release_canvas(canvas);
         }
@@ -580,33 +582,40 @@ esp_err_t swap_canvas()
         return ESP_ERR_INVALID_STATE;
     }
 
-    // Retain the screen outside the active canvas, independently of mailbox ownership.
+    // Every mailbox is a complete 320x180 image. Smaller targets leave black
+    // padding, and oversized targets are clipped before presentation.
     const int width = std::min(canvas_width, int(drawing_canvas.width()));
     const int height = std::min(canvas_height, int(drawing_canvas.height()));
-    const auto* source = static_cast<const uint16_t*>(drawing_canvas.getBuffer());
-    auto* screen = static_cast<uint16_t*>(screen_canvas.getBuffer());
-    for (int y = 0; y < height; ++y) {
-        std::memcpy(screen + y * canvas_width, source + y * drawing_canvas.width(),
-                    width * sizeof(uint16_t));
-    }
-
-    // Reserve the mailbox for DMA, dropping its old frame if still pending.
     portENTER_CRITICAL(&mailbox_lock);
     frame_pending = false;
     auto* destination = canvases[mailbox_index].getBuffer();
     portEXIT_CRITICAL(&mailbox_lock);
 
-    ESP_RETURN_ON_ERROR(esp_cache_msync(screen_canvas.getBuffer(), canvas_bytes,
-                                      ESP_CACHE_MSYNC_FLAG_DIR_C2M), tag, "publish canvas pixels");
-    ESP_RETURN_ON_ERROR(esp_cache_msync(destination, canvas_bytes, ESP_CACHE_MSYNC_FLAG_DIR_M2C),
-                        tag, "invalidate mailbox pixels");
-    const auto result = submit_dma.copy(destination);
-    if (result != ESP_OK) {
-        // Stop any incomplete transfer before Lua can write to the source again.
-        submit_dma.release();
-        return result;
+    if (drawing_canvas.width() == canvas_width && height == canvas_height) {
+        ESP_RETURN_ON_ERROR(esp_cache_msync(drawing_canvas.getBuffer(), canvas_bytes,
+                                          ESP_CACHE_MSYNC_FLAG_DIR_C2M), tag, "publish canvas pixels");
+        ESP_RETURN_ON_ERROR(esp_cache_msync(destination, canvas_bytes, ESP_CACHE_MSYNC_FLAG_DIR_M2C),
+                            tag, "invalidate mailbox pixels");
+        const auto result = submit_dma.copy(destination);
+        if (result != ESP_OK) {
+            submit_dma.release();
+            return result;
+        }
+        esp_psram_mspi_mb();
+    } else {
+        const auto* source = static_cast<const uint16_t*>(drawing_canvas.getBuffer());
+        auto* pixels = static_cast<uint16_t*>(destination);
+        for (int y = 0; y < height; ++y) {
+            std::memcpy(pixels + y * canvas_width, source + y * drawing_canvas.width(),
+                        width * sizeof(uint16_t));
+            std::memset(pixels + y * canvas_width + width, 0,
+                        (canvas_width - width) * sizeof(uint16_t));
+        }
+        std::memset(pixels + height * canvas_width, 0,
+                    (canvas_height - height) * canvas_width * sizeof(uint16_t));
+        ESP_RETURN_ON_ERROR(esp_cache_msync(destination, canvas_bytes,
+                                          ESP_CACHE_MSYNC_FLAG_DIR_C2M), tag, "publish mailbox pixels");
     }
-    esp_psram_mspi_mb();
     portENTER_CRITICAL(&mailbox_lock);
     frame_pending = true;
     portEXIT_CRITICAL(&mailbox_lock);
