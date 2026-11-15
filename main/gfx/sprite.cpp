@@ -1,6 +1,7 @@
 #include "sprite.hpp"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <new>
@@ -41,6 +42,31 @@ Sprite* create_sprite(int width, int height, const char*& error)
     image.setBuffer(pixels, width, height);
     error = nullptr;
     return sprite.release();
+}
+
+bool save_png(Sprite& sprite, const char* path, const char*& error)
+{
+    size_t size = 0;
+    std::unique_ptr<void, decltype(&std::free)> png(
+        sprite.canvas.createPng(&size, 0, 0, sprite.canvas.width(), sprite.canvas.height()),
+        std::free);
+    if (!png) {
+        error = "cannot encode PNG";
+        return false;
+    }
+    std::unique_ptr<FILE, decltype(&std::fclose)> file(std::fopen(path, "wb"), std::fclose);
+    if (!file) {
+        error = "could not open PNG file for writing";
+        return false;
+    }
+    const bool written = std::fwrite(png.get(), 1, size, file.get()) == size;
+    const bool closed = std::fclose(file.release()) == 0;
+    if (!written || !closed) {
+        error = "cannot write PNG file";
+        return false;
+    }
+    error = nullptr;
+    return true;
 }
 
 Sprite* load_png(const char* path, const char*& error)

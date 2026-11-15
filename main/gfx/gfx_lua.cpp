@@ -37,6 +37,7 @@ Sprite& check_sprite(lua_State* state, int index)
 }
 
 int sprite_get_pixel(lua_State* state);
+int sprite_save(lua_State* state);
 
 int sprite_index(lua_State* state)
 {
@@ -48,6 +49,8 @@ int sprite_index(lua_State* state)
     auto& sprite = check_sprite(state, 1);
     if (std::strcmp(key, "pget") == 0) {
         lua_pushcfunction(state, sprite_get_pixel);
+    } else if (std::strcmp(key, "save") == 0) {
+        lua_pushcfunction(state, sprite_save);
     } else if (std::strcmp(key, "width") == 0) {
         lua_pushinteger(state, sprite.canvas.width());
     } else if (std::strcmp(key, "height") == 0) {
@@ -55,6 +58,22 @@ int sprite_index(lua_State* state)
     } else {
         lua_pushnil(state);
     }
+    return 1;
+}
+
+int sprite_save(lua_State* state)
+{
+    auto& sprite = check_sprite(state, 1);
+    size_t length;
+    const char* path = luaL_checklstring(state, 2, &length);
+    luaL_argcheck(state, std::strlen(path) == length, 2, "invalid PNG path");
+    const char* error = nullptr;
+    if (!save_png(sprite, path, error)) {
+        lua_pushnil(state);
+        lua_pushstring(state, error);
+        return 2;
+    }
+    lua_pushboolean(state, true);
     return 1;
 }
 

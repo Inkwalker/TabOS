@@ -14,6 +14,13 @@ local Sprite = {}
 ---@return integer color RGB565 color (0–65535).
 function Sprite:pget(x, y) end
 
+---Save the whole sprite as an opaque PNG.
+---Overwrite an existing file; parent directories must already exist.
+---@param path string
+---@return boolean? success True on success, or nil on failure.
+---@return string? error
+function Sprite:save(path) end
+
 ---Release sprite memory. Calling close more than once is safe.
 function Sprite:close() end
 

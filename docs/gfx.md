@@ -33,6 +33,7 @@ Drawing starts with a 320 × 180 landscape canvas with origin `(0, 0)` at the to
 | `sprite.width`, `sprite.height` | Read-only sprite dimensions in pixels. |
 | `gfx.sspr(sprite, sx, sy, sw, sh, dx, dy [, dw [, dh [, key [, flip_x [, flip_y]]]]])` | Draw a source rectangle at `(dx, dy)` with nearest-neighbor scaling. `dw` and `dh` default to `sw` and `sh`. Color key and mirror flags work as in `spr`. |
 | `sprite:pget(x, y)` | Read a sprite pixel as RGB565, relative to its top-left corner `(0, 0)`. |
+| `sprite:save(path)` | Write the whole sprite as an opaque PNG, overwriting an existing file. Return `true`, or `nil, error` on encoding or file failure. Parent directories must already exist. |
 | `sprite:close()` | Release sprite memory. Closing more than once is safe. |
 
 Circle radii are integers in 0–32767, ellipse radii in 0–512, and rectangle dimensions in 1–32767. Drawing and setter calls return no values.

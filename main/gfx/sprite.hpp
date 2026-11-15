@@ -25,5 +25,6 @@ struct Sprite {
 // Returns an owning pointer on success or sets error to a static message.
 Sprite* load_png(const char* path, const char*& error);
 Sprite* create_sprite(int width, int height, const char*& error);
+bool save_png(Sprite& sprite, const char* path, const char*& error);
 
 }
