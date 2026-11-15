@@ -1,7 +1,7 @@
 idf_component_register(SRCS "main.cpp" "lua/lua_vm.cpp" "lua/lua_memory.cpp" "gfx/gfx.cpp" "gfx/gfx_lua.cpp"
                         "gfx/sprite.cpp" "gfx/commands.cpp"
                         "system/system_lua.cpp" "input/input_lua.cpp"
-                        "storage/storage.cpp" "storage/fs_lua.cpp" "storage/fs_table.cpp"
+                        "storage/storage.cpp" "storage/fs_lua.cpp" "storage/fs_table.cpp" "storage/usb_dma.cpp"
                         "audio/audio.cpp" "audio/audio_lua.cpp" "audio/sound.cpp"
                     INCLUDE_DIRS "."
                     PRIV_REQUIRES esp_hw_support esp_mm esp_lcd esp_timer esp_psram
@@ -12,6 +12,10 @@ idf_component_register(SRCS "main.cpp" "lua/lua_vm.cpp" "lua/lua_memory.cpp" "gf
 # override the stubs; otherwise USB enumerates but MTP commands fail.
 if(CONFIG_TINYUSB_MTP_ENABLED)
     idf_component_set_property(espressif__esp_tinyusb WHOLE_ARCHIVE TRUE)
+    if(CONFIG_SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE)
+        # Prepare USB receive buffers without changing the managed TinyUSB driver.
+        target_link_libraries(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=dcd_edpt_xfer")
+    endif()
 endif()
 
 fatfs_create_rawflash_image(
