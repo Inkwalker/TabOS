@@ -17,6 +17,7 @@ static_assert(screen_width % scale == 0 && screen_height % scale == 0);
 
 constexpr int canvas_width = screen_width / scale;
 constexpr int canvas_height = screen_height / scale;
+constexpr size_t target_capacity = 128 * 1024;
 
 // Call after M5.begin(), on the same core.
 bool init();
@@ -27,8 +28,12 @@ lua_vm::Module lua_module();
 // Returns nullptr before successful initialization.
 lgfx::PPA_Sprite* active_canvas();
 
-// Renderer-only: publish the canvas, replace pending frames and reset clipping.
+// Renderer-only: overlay the canvas on the retained screen, publish and reset clipping.
 esp_err_t swap_canvas();
+// Renderer-only: discard pixels, reset clipping and resize the shared SRAM canvas.
+esp_err_t select_target(int width, int height);
+// Renderer-only: save the active canvas to an equally sized sprite.
+esp_err_t save_canvas(lgfx::PPA_Sprite& sprite);
 
 // Renderer-only blocking operations with clipping and software fallback. Drawing pixels
 // are ready for reads, subsequent software drawing, and flip() on return.

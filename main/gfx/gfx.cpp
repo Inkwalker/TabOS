@@ -209,6 +209,7 @@ esp_err_t CopyDma::configure(size_t source_items, size_t size, size_t tx_burst)
 
     gdma_transfer_config_t config{};
     config.max_data_burst_size = tx_burst;
+    config.access_ext_mem = true;
     ESP_RETURN_ON_ERROR(gdma_config_transfer(tx_, &config), tag, "configure TX burst");
     config.max_data_burst_size = rx_burst_bytes;
     config.access_ext_mem = true;
@@ -403,6 +404,7 @@ void present_framebuffer(ScreenTransfer& transfer, const uint8_t* framebuffer)
 constexpr size_t canvas_bytes = canvas_width * canvas_height * sizeof(uint16_t);
 static_assert(canvas_bytes % dma_alignment == 0);
 lgfx::PPA_Sprite drawing_canvas;
+lgfx::PPA_Sprite screen_canvas;
 lgfx::PPA_Sprite canvases[2];
 std::unique_ptr<lgfx::PPABlend> ppa_blend;
 CopyDma submit_dma;
@@ -466,9 +468,9 @@ bool start_presenter()
 bool initialized = false;
 uint16_t draw_color = TFT_WHITE;
 
-bool setup_canvas(lgfx::PPA_Sprite& canvas, uint32_t caps)
+bool setup_canvas(lgfx::PPA_Sprite& canvas, uint32_t caps, size_t bytes = canvas_bytes)
 {
-    auto* pixels = heap_caps_aligned_calloc(dma_alignment, 1, canvas_bytes, caps);
+    auto* pixels = heap_caps_aligned_calloc(dma_alignment, 1, bytes, caps);
     if (!pixels) {
         ESP_LOGE(tag, "Could not allocate canvas pixels (caps %#lx)",
                  static_cast<unsigned long>(caps));
@@ -492,7 +494,7 @@ void release_canvas(lgfx::PPA_Sprite& canvas)
 bool init_submit_dma()
 {
     // Keep the descriptor lists for the lifetime of the canvas, including across flips.
-    const auto result = submit_dma.init_canvas(drawing_canvas.getBuffer(), canvas_bytes);
+    const auto result = submit_dma.init_canvas(screen_canvas.getBuffer(), canvas_bytes);
     if (result != ESP_OK) {
         ESP_LOGE(tag, "Could not initialize canvas DMA (%s)", esp_err_to_name(result));
     }
@@ -515,7 +517,9 @@ bool init()
         ESP_LOGE(tag, "Expected a %dx%d portrait framebuffer", screen_height, screen_width);
         return false;
     }
-    if (!setup_canvas(drawing_canvas, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT) ||
+    if (!setup_canvas(drawing_canvas, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT,
+                      target_capacity) ||
+        !setup_canvas(screen_canvas, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) ||
         !setup_canvas(canvases[0], MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) ||
         !setup_canvas(canvases[1], MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) ||
         !init_submit_dma() ||
@@ -524,6 +528,7 @@ bool init()
         stop_commands();
         submit_dma.release();
         release_canvas(drawing_canvas);
+        release_canvas(screen_canvas);
         for (auto& canvas : canvases) {
             release_canvas(canvas);
         }
@@ -543,10 +548,46 @@ lgfx::PPA_Sprite* active_canvas()
     return initialized ? &drawing_canvas : nullptr;
 }
 
+esp_err_t select_target(int width, int height)
+{
+    if (!initialized) return ESP_ERR_INVALID_STATE;
+    if (width <= 0 || height <= 0 || width > INT16_MAX || height > INT16_MAX
+        || size_t(width) * height * sizeof(uint16_t) > target_capacity) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    auto* pixels = drawing_canvas.getBuffer();
+    drawing_canvas.setBuffer(pixels, width, height);
+    drawing_canvas.clearClipRect();
+    drawing_canvas.setCursor(0, 0);
+    drawing_canvas.fillScreen(uint16_t(0));
+    return ESP_OK;
+}
+
+esp_err_t save_canvas(lgfx::PPA_Sprite& sprite)
+{
+    if (sprite.width() != drawing_canvas.width() || sprite.height() != drawing_canvas.height()) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    std::memcpy(sprite.getBuffer(), drawing_canvas.getBuffer(),
+                size_t(sprite.width()) * sprite.height() * sizeof(uint16_t));
+    drawing_canvas.clearClipRect();
+    return ESP_OK;
+}
+
 esp_err_t swap_canvas()
 {
     if (!initialized) {
         return ESP_ERR_INVALID_STATE;
+    }
+
+    // Retain the screen outside the active canvas, independently of mailbox ownership.
+    const int width = std::min(canvas_width, int(drawing_canvas.width()));
+    const int height = std::min(canvas_height, int(drawing_canvas.height()));
+    const auto* source = static_cast<const uint16_t*>(drawing_canvas.getBuffer());
+    auto* screen = static_cast<uint16_t*>(screen_canvas.getBuffer());
+    for (int y = 0; y < height; ++y) {
+        std::memcpy(screen + y * canvas_width, source + y * drawing_canvas.width(),
+                    width * sizeof(uint16_t));
     }
 
     // Reserve the mailbox for DMA, dropping its old frame if still pending.
@@ -555,7 +596,7 @@ esp_err_t swap_canvas()
     auto* destination = canvases[mailbox_index].getBuffer();
     portEXIT_CRITICAL(&mailbox_lock);
 
-    ESP_RETURN_ON_ERROR(esp_cache_msync(drawing_canvas.getBuffer(), canvas_bytes,
+    ESP_RETURN_ON_ERROR(esp_cache_msync(screen_canvas.getBuffer(), canvas_bytes,
                                       ESP_CACHE_MSYNC_FLAG_DIR_C2M), tag, "publish canvas pixels");
     ESP_RETURN_ON_ERROR(esp_cache_msync(destination, canvas_bytes, ESP_CACHE_MSYNC_FLAG_DIR_M2C),
                         tag, "invalidate mailbox pixels");
@@ -576,8 +617,8 @@ esp_err_t swap_canvas()
 
 void fill_rect(int x, int y, int width, int height, uint16_t color)
 {
-    const int right = std::min(canvas_width, x + width);
-    const int bottom = std::min(canvas_height, y + height);
+    const int right = std::min(int(drawing_canvas.width()), x + width);
+    const int bottom = std::min(int(drawing_canvas.height()), y + height);
     x = std::max(0, x);
     y = std::max(0, y);
     width = right - x;
@@ -594,8 +635,8 @@ void draw_sprite(lgfx::PPA_Sprite& sprite, int x, int y, int32_t transparent,
     drawing_canvas.getClipRect(&clip_x, &clip_y, &clip_width, &clip_height);
     const int destination_x = std::max({0, x, int(clip_x)});
     const int destination_y = std::max({0, y, int(clip_y)});
-    const int right = std::min({canvas_width, x + int(sprite.width()), int(clip_x + clip_width)});
-    const int bottom = std::min({canvas_height, y + int(sprite.height()), int(clip_y + clip_height)});
+    const int right = std::min({int(drawing_canvas.width()), x + int(sprite.width()), int(clip_x + clip_width)});
+    const int bottom = std::min({int(drawing_canvas.height()), y + int(sprite.height()), int(clip_y + clip_height)});
     const int width = right - destination_x;
     const int height = bottom - destination_y;
     if (width <= 0 || height <= 0) return;
@@ -618,15 +659,15 @@ void draw_sprite(lgfx::PPA_Sprite& sprite, int x, int y, int32_t transparent,
         config.in_fg.blend_cm = PPA_BLEND_COLOR_MODE_RGB565;
         config.in_bg = config.in_fg;
         config.in_bg.buffer = drawing_canvas.getBuffer();
-        config.in_bg.pic_w = canvas_width;
-        config.in_bg.pic_h = canvas_height;
+        config.in_bg.pic_w = int(drawing_canvas.width());
+        config.in_bg.pic_h = int(drawing_canvas.height());
         config.in_bg.block_offset_x = destination_x;
         config.in_bg.block_offset_y = destination_y;
         config.out = {};
         config.out.buffer = drawing_canvas.getBuffer();
-        config.out.buffer_size = canvas_bytes;
-        config.out.pic_w = canvas_width;
-        config.out.pic_h = canvas_height;
+        config.out.buffer_size = target_capacity;
+        config.out.pic_w = int(drawing_canvas.width());
+        config.out.pic_h = int(drawing_canvas.height());
         config.out.block_offset_x = destination_x;
         config.out.block_offset_y = destination_y;
         config.out.blend_cm = PPA_BLEND_COLOR_MODE_RGB565;
@@ -660,7 +701,7 @@ void draw_sprite(lgfx::PPA_Sprite& sprite, int x, int y, int32_t transparent,
     const int step_y = flip_y ? -1 : 1;
     for (int row = 0; row < height; ++row) {
         const auto* source = pixels + (first_y + row * step_y) * sprite.width() + first_x;
-        auto* out = destination + (destination_y + row) * canvas_width + destination_x;
+        auto* out = destination + (destination_y + row) * int(drawing_canvas.width()) + destination_x;
         if (transparent < 0) {
             if (!flip_x) {
                 std::memcpy(out, source, width * sizeof(uint16_t));
@@ -686,35 +727,39 @@ void draw_sprite_region(lgfx::PPA_Sprite& sprite, int sx, int sy, int sw, int sh
     drawing_canvas.getClipRect(&clip_x, &clip_y, &clip_width, &clip_height);
     const int left = std::max({0, dx, int(clip_x)});
     const int top = std::max({0, dy, int(clip_y)});
-    const int right = std::min({int64_t(canvas_width), int64_t(dx) + dw,
+    const int right = std::min({int64_t(drawing_canvas.width()), int64_t(dx) + dw,
                                 int64_t(clip_x) + clip_width});
-    const int bottom = std::min({int64_t(canvas_height), int64_t(dy) + dh,
+    const int bottom = std::min({int64_t(drawing_canvas.height()), int64_t(dy) + dh,
                                  int64_t(clip_y) + clip_height});
     if (left >= right || top >= bottom) return;
 
-    // Compute the horizontal mapping once, keeping division out of the pixel
-    // loop. Mirror within the requested source rectangle before bounds checks.
-    int source_columns[canvas_width];
-    for (int x = left; x < right; ++x) {
-        const int sample = (int64_t(x) - dx) * sw / dw;
-        const int64_t source_x = int64_t(sx) + (flip_x ? sw - 1 - sample : sample);
-        source_columns[x - left] = source_x >= 0 && source_x < sprite.width()
-                                     ? static_cast<int>(source_x) : -1;
-    }
-    const auto* pixels = static_cast<const uint16_t*>(sprite.getBuffer());
-    auto* destination = static_cast<uint16_t*>(drawing_canvas.getBuffer());
-    const auto key = static_cast<uint16_t>(transparent);
-    for (int y = top; y < bottom; ++y) {
-        const int sample = (int64_t(y) - dy) * sh / dh;
-        const int64_t source_y = int64_t(sy) + (flip_y ? sh - 1 - sample : sample);
-        if (source_y < 0 || source_y >= sprite.height()) continue;
-        const auto* source = pixels + source_y * sprite.width();
-        auto* out = destination + y * canvas_width + left;
-        for (int column = 0; column < right - left; ++column) {
-            const int source_x = source_columns[column];
-            if (source_x < 0) continue;
-            const auto color = source[source_x];
-            if (transparent < 0 || color != key) out[column] = color;
+    // Compute horizontal mappings in bounded chunks so wide targets fit the worker
+    // stack. Mirror within the requested source rectangle before bounds checks.
+    constexpr int column_capacity = 256;
+    int source_columns[column_capacity];
+    for (int chunk = left; chunk < right; chunk += column_capacity) {
+        const int chunk_right = std::min(right, chunk + column_capacity);
+        for (int x = chunk; x < chunk_right; ++x) {
+            const int sample = (int64_t(x) - dx) * sw / dw;
+            const int64_t source_x = int64_t(sx) + (flip_x ? sw - 1 - sample : sample);
+            source_columns[x - chunk] = source_x >= 0 && source_x < sprite.width()
+                                         ? static_cast<int>(source_x) : -1;
+        }
+        const auto* pixels = static_cast<const uint16_t*>(sprite.getBuffer());
+        auto* destination = static_cast<uint16_t*>(drawing_canvas.getBuffer());
+        const auto key = static_cast<uint16_t>(transparent);
+        for (int y = top; y < bottom; ++y) {
+            const int sample = (int64_t(y) - dy) * sh / dh;
+            const int64_t source_y = int64_t(sy) + (flip_y ? sh - 1 - sample : sample);
+            if (source_y < 0 || source_y >= sprite.height()) continue;
+            const auto* source = pixels + source_y * sprite.width();
+            auto* out = destination + y * int(drawing_canvas.width()) + chunk;
+            for (int column = 0; column < chunk_right - chunk; ++column) {
+                const int source_x = source_columns[column];
+                if (source_x < 0) continue;
+                const auto color = source[source_x];
+                if (transparent < 0 || color != key) out[column] = color;
+            }
         }
     }
 }
@@ -742,8 +787,8 @@ void draw_textured_line(lgfx::PPA_Sprite& sprite, int x0, int y0, int x1, int y1
     drawing_canvas.getClipRect(&clip_x, &clip_y, &clip_width, &clip_height);
     const int left = std::max(0, int(clip_x));
     const int top = std::max(0, int(clip_y));
-    const int right = std::min(canvas_width, int(clip_x + clip_width));
-    const int bottom = std::min(canvas_height, int(clip_y + clip_height));
+    const int right = std::min(int(drawing_canvas.width()), int(clip_x + clip_width));
+    const int bottom = std::min(int(drawing_canvas.height()), int(clip_y + clip_height));
     if (left >= right || top >= bottom) return;
     const auto* pixels = static_cast<const uint16_t*>(sprite.getBuffer());
     auto* destination = static_cast<uint16_t*>(drawing_canvas.getBuffer());
@@ -771,8 +816,8 @@ void draw_textured_line(lgfx::PPA_Sprite& sprite, int x0, int y0, int x1, int y1
             if (sy >= height) sy -= height;
         }
         const int direction = first <= last ? 1 : -1;
-        const int stride = direction * (horizontal ? 1 : canvas_width);
-        const int offset = horizontal ? y0 * canvas_width + start : start * canvas_width + x0;
+        const int stride = direction * (horizontal ? 1 : int(drawing_canvas.width()));
+        const int offset = horizontal ? y0 * int(drawing_canvas.width()) + start : start * int(drawing_canvas.width()) + x0;
         auto* out = destination + offset;
         int remaining = std::abs(end - start) + 1;
         for (;;) {
@@ -793,7 +838,7 @@ void draw_textured_line(lgfx::PPA_Sprite& sprite, int x0, int y0, int x1, int y1
     int error = dx + dy;
     for (;;) {
         if (x0 >= left && x0 < right && y0 >= top && y0 < bottom) {
-            destination[y0 * canvas_width + x0] =
+            destination[y0 * int(drawing_canvas.width()) + x0] =
                 pixels[static_cast<int>(sy) * width + static_cast<int>(sx)];
         }
         if (x0 == x1 && y0 == y1) break;

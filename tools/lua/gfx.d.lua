@@ -1,6 +1,6 @@
 ---@meta
 
----A PNG sprite backed by RGB565 pixels. Dimensions are read-only.
+---A sprite backed by RGB565 pixels in PSRAM. Dimensions are read-only.
 ---Memory is released by close(), garbage collection, or a Lua <close> local.
 ---Reading dimensions or pixels, or drawing the sprite, after closing raises an error.
 ---@class gfx.Sprite
@@ -23,9 +23,11 @@ function Sprite:close() end
 ---Drawing and clip calls enqueue work on core 0; a full buffer waits for space.
 gfx = {}
 
+---Active canvas width in pixels.
 ---@type integer
 gfx.width = 320
 
+---Active canvas height in pixels.
 ---@type integer
 gfx.height = 180
 
@@ -33,11 +35,24 @@ gfx.height = 180
 ---@param color? integer RGB565 color (0–65535).
 function gfx.cls(color) end
 
----Submit a copy of the canvas for asynchronous presentation.
+---Select a fresh black canvas, discarding the previous drawing and resetting clipping.
+---Blocks until preceding drawing finishes. Uses one shared 128 KiB SRAM buffer.
+---Width and height must be 1-32767, with width * height <= 65536.
+---With no arguments, select a fresh 320x180 canvas.
+---@overload fun()
+---@param width integer
+---@param height integer
+function gfx.target(width, height) end
+
+---Present the canvas at the screen's top left, clipping excess pixels and
+---preserving the screen outside its bounds. Uses the usual 4x display scaling.
+---With a sprite, save all canvas pixels to it instead, requiring matching dimensions.
 ---Blocks until queued drawing and the canvas copy finish.
----Replaces any pending frame and leaves drawing pixels intact. Raises on failure.
+---Screen presentation replaces any pending frame. Drawing pixels stay intact.
+---Raises on failure.
 ---Resets the clip rectangle to the full canvas on success.
-function gfx.flip() end
+---@param sprite? gfx.Sprite
+function gfx.flip(sprite) end
 
 ---Set the active canvas clip rectangle, replacing the previous rectangle.
 ---Restricts drawing (including cls) to its intersection with the canvas bounds.
@@ -163,6 +178,13 @@ function gfx.print(x, y, text, color) end
 ---@return gfx.Sprite? sprite Loaded sprite, or nil on failure.
 ---@return string? error Error message on failure.
 function gfx.load_sprite(path) end
+
+---Create a black RGB565 sprite in PSRAM. Return nil and an error on allocation failure.
+---@param width integer Width from 1 to 32767.
+---@param height integer Height from 1 to 32767.
+---@return gfx.Sprite? sprite
+---@return string? error
+function gfx.create_sprite(width, height) end
 
 ---Draw a loaded sprite at (x, y).
 ---@param sprite gfx.Sprite

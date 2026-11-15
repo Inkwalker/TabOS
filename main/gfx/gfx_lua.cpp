@@ -112,6 +112,48 @@ int dimension(lua_State* state, int index)
     return static_cast<int>(value);
 }
 
+int create_sprite(lua_State* state)
+{
+    const int width = dimension(state, 1);
+    const int height = dimension(state, 2);
+    auto** sprite = static_cast<Sprite**>(lua_newuserdatauv(state, sizeof(Sprite*), 0));
+    *sprite = nullptr;
+    luaL_setmetatable(state, sprite_type);
+    const char* error = nullptr;
+    *sprite = gfx::create_sprite(width, height, error);
+    if (!*sprite) {
+        lua_pushnil(state);
+        lua_pushstring(state, error);
+        return 2;
+    }
+    return 1;
+}
+
+int select_target(lua_State* state)
+{
+    const int width = lua_gettop(state) == 0 ? canvas_width : dimension(state, 1);
+    const int height = lua_gettop(state) == 0 ? canvas_height : dimension(state, 2);
+    luaL_argcheck(state, size_t(width) * height * sizeof(uint16_t) <= target_capacity,
+                  1, "target exceeds 128 KiB");
+    canvas(state);
+    const auto result = execute_and_wait(DrawCommand{DrawOp::target, {width, height}});
+    if (result != ESP_OK) return luaL_error(state, "gfx.target failed (%s)", esp_err_to_name(result));
+    return 0;
+}
+
+int gfx_index(lua_State* state)
+{
+    const char* key = lua_type(state, 2) == LUA_TSTRING ? lua_tostring(state, 2) : "";
+    if (std::strcmp(key, "width") == 0) {
+        lua_pushinteger(state, canvas(state).width());
+    } else if (std::strcmp(key, "height") == 0) {
+        lua_pushinteger(state, canvas(state).height());
+    } else {
+        lua_pushnil(state);
+    }
+    return 1;
+}
+
 int circle_radius(lua_State* state)
 {
     const auto value = luaL_checkinteger(state, 3);
@@ -216,8 +258,8 @@ int rgb(lua_State* state)
 int clear(lua_State* state)
 {
     const uint16_t color = lua_isnoneornil(state, 1) ? 0 : check_color(state, 1);
-    canvas(state);
-    DrawCommand command{DrawOp::fill_rect, {0, 0, canvas_width, canvas_height}};
+    auto& target = canvas(state);
+    DrawCommand command{DrawOp::fill_rect, {0, 0, int(target.width()), int(target.height())}};
     command.color = color;
     enqueue(command);
     return 0;
@@ -417,10 +459,19 @@ int text(lua_State* state)
 }
 int swap_canvas(lua_State* state)
 {
-    canvas(state);
-    const auto result = execute_and_wait(DrawCommand{DrawOp::flip});
+    auto& target = canvas(state);
+    DrawCommand command{DrawOp::flip};
+    if (!lua_isnoneornil(state, 1)) {
+        auto& sprite = check_sprite(state, 1);
+        luaL_argcheck(state, sprite.canvas.width() == target.width()
+                      && sprite.canvas.height() == target.height(), 1,
+                      "sprite dimensions must match the active target");
+        command.op = DrawOp::save;
+        command.sprite = &sprite.canvas;
+    }
+    const auto result = execute_and_wait(command);
     if (result != ESP_OK) {
-        return luaL_error(state, "gfx.flip: canvas DMA transfer failed (%s)", esp_err_to_name(result));
+        return luaL_error(state, "gfx.flip failed (%s)", esp_err_to_name(result));
     }
     return 0;
 }
@@ -447,6 +498,8 @@ int push_gfx_table(lua_State* state)
     lua_pop(state, 1);
     const luaL_Reg functions[] = {
         {"load_sprite", load_sprite},
+        {"create_sprite", create_sprite},
+        {"target", select_target},
         {"spr", spr},
         {"sspr", sspr},
         {"cls", clear},
@@ -470,10 +523,10 @@ int push_gfx_table(lua_State* state)
     };
 
     luaL_newlib(state, functions);
-    lua_pushinteger(state, canvas_width);
-    lua_setfield(state, -2, "width");
-    lua_pushinteger(state, canvas_height);
-    lua_setfield(state, -2, "height");
+    lua_newtable(state);
+    lua_pushcfunction(state, gfx_index);
+    lua_setfield(state, -2, "__index");
+    lua_setmetatable(state, -2);
     return 1;
 }
 } // namespace

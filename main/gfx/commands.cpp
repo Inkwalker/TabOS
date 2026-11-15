@@ -39,6 +39,8 @@ void draw_commands(void*)
         switch (command.op) {
         case DrawOp::barrier: break;
         case DrawOp::flip: result = swap_canvas(); break;
+        case DrawOp::target: result = select_target(a[0], a[1]); break;
+        case DrawOp::save: result = save_canvas(*command.sprite); break;
         case DrawOp::pget: pixel = target.readPixel(a[0], a[1]); break;
         case DrawOp::clip: target.setClipRect(a[0], a[1], a[2], a[3]); break;
         case DrawOp::reset_clip: target.clearClipRect(); break;
