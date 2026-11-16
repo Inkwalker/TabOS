@@ -12,6 +12,7 @@ Add `manifest.ltab` to the bundle:
 {
     name = "My App",
     icon = "icon.png",
+    window = true,
 }
 ```
 
@@ -19,6 +20,7 @@ Add `manifest.ltab` to the bundle:
 | --- | --- | --- |
 | `name` | Display name for labels, menus, and sorting. | Directory name without `.tap`. |
 | `icon` | Bundle-relative PNG path using `/`; no absolute paths or `..` segments. | Built-in initial icon if missing, invalid, oversized, or unloadable. |
+| `window` | Boolean. `true` opts into a 300 × 180 app canvas with the system taskbar. | `false` (fullscreen) when missing or invalid. |
 
 Use opaque, 28 × 28 pixel icons. Smaller images are centered; transparency is flattened against black. App scans, including **Refresh**, reload manifests and icons. Recovery launches apps by path.
 
@@ -49,6 +51,8 @@ Define hooks as global functions. All are optional; only `save_state()` return v
 
 The shell polls input and blocks keys and touches held across transitions until release. The Lua shell presents the canvas with `gfx.flip()` at the end of each update, after app and shell drawing. Apps do not need to call it. Canvas pixels persist between updates; clipping resets after presentation.
 
+The SD launcher selects the app canvas before loading `app.lua` and calling `init`. Non-fullscreen apps see `gfx.width = 300` and `gfx.height = 180`. Each frame restores their previous pixels, runs the app, saves the canvas to a sprite, and draws it at `(0, 0)` on the full screen canvas before shell overlays and screen presentation. Fullscreen apps keep the existing direct rendering path. Recovery rendering is unchanged.
+
 ## Suspension and resume
 
 Suspension keeps one RAM session per normalized, case-insensitive bundle path until restart, even without a `save_state()` hook or payload. Exit, **Ctrl+Esc**, and callback errors skip state saving.
@@ -58,6 +62,8 @@ Snapshots use strings, numbers, booleans, and plain tables as keys and values. T
 Relaunching a bundle reloads its code and resumes its session, reusing saved arguments unless new ones are supplied. Successful initialization consumes the session; load or initialization errors preserve it for retry.
 
 Suspended apps show a pause badge. Hold an icon and confirm **Forget Session** to discard its RAM session.
+
+The desktop and windowed apps show a 20-pixel taskbar at the right edge, with the battery indicator at the top and Home at the bottom. The active app icon stays visible above suspended app icons. Tap a suspended icon to suspend the current app and resume that session, or to resume it directly from the desktop. Tap Home to suspend the current app and return to the desktop. If saving is rejected, the current app stays active. Taskbar gestures are reserved for the system. Overflow sessions use pages; tap `>` above Home to cycle through them. Fullscreen apps keep the whole screen and do not show the taskbar.
 
 Custom shells can use:
 

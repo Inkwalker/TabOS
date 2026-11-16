@@ -1,4 +1,5 @@
 {
     name = "Code Editor",
     icon = "icon.png",
+    window = true,
 }

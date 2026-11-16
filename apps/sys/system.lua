@@ -16,6 +16,11 @@ local pressed
 local press_elapsed = 0
 local app_menu
 local confirm_forget = false
+local app_frame
+local active_app
+local Taskbar = require("taskbar")
+local taskbar = Taskbar.new()
+local desktop_width = 300
 
 local colors = {
     background = gfx.rgb(9, 15, 24),
@@ -28,17 +33,21 @@ local colors = {
     error = gfx.rgb(255, 92, 97),
 }
 local margin, header, footer = 8, 22, 24
-local columns = math.max(1, math.floor((gfx.width - margin * 2) / 72))
+local columns = math.max(1, math.floor((desktop_width - margin * 2) / 72))
 local rows = math.max(1, math.floor((gfx.height - header - footer) / 60))
 local per_page = columns * rows
-local cell_width = math.floor((gfx.width - margin * 2) / columns)
+local cell_width = math.floor((desktop_width - margin * 2) / columns)
 local cell_height = math.floor((gfx.height - header - footer) / rows)
 
 local function show_error(err)
     message = tostring(err)
 end
 
-local runner = require("app_runner").new(raw_input, show_error)
+local app_input = setmetatable({touch = function()
+    local contacts = raw_input.touch()
+    return app_frame and taskbar:app_touch(contacts) or contacts
+end}, {__index = raw_input})
+local runner = require("app_runner").new(app_input, show_error)
 
 local function refresh_status()
     local clock_changed = clock.refresh()
@@ -71,9 +80,10 @@ local function scan_apps()
                     if name:sub(-4):lower() == ".tap" then
                         local main = fs.stat(path .. "/app.lua")
                         if main and main.type == "file" then
-                            local app = {name = name:sub(1, -5), path = path}
+                            local app = {name = name:sub(1, -5), path = path, window = false}
                             local manifest = fs.read_table(path .. "/manifest.ltab")
                             if manifest then
+                                app.window = manifest.window == true
                                 if type(manifest.name) == "string" and manifest.name:find("%S")
                                     and not manifest.name:find("%c") then
                                     app.name = manifest.name
@@ -134,10 +144,9 @@ end
 local function draw()
     targets = {}
     gfx.cls(colors.background)
-    gfx.rectfill(0, 0, gfx.width, 16, colors.panel)
+    gfx.rectfill(0, 0, desktop_width, 16, colors.panel)
     gfx.print(8, 4, "TabOS", colors.text)
-    clock.draw(gfx.width - 60, 4, colors.text)
-    battery.draw(gfx.width - 24, 4, colors.text)
+    clock.draw(desktop_width - 36, 4, colors.text)
 
     local first = (page - 1) * per_page + 1
     for index = first, math.min(#apps, first + per_page - 1) do
@@ -166,29 +175,29 @@ local function draw()
         centered(x, y + 42, width, label, colors.text)
     end
     if #apps == 0 then
-        centered(0, header + 34, gfx.width, "No .tap apps on SD card", colors.muted)
-        centered(0, header + 48, gfx.width, "Copy apps, then tap Refresh", colors.muted)
+        centered(0, header + 34, desktop_width, "No .tap apps on SD card", colors.muted)
+        centered(0, header + 48, desktop_width, "Copy apps, then tap Refresh", colors.muted)
     end
 
     local y = gfx.height - footer
-    gfx.rectfill(0, y, gfx.width, footer, colors.panel)
+    gfx.rectfill(0, y, desktop_width, footer, colors.panel)
     local function button(x, width, label, action, enabled)
         if enabled then target(x, y, width, footer, action) end
         centered(x, y + 8, width, label, enabled and colors.text or colors.muted)
     end
     button(0, 60, "< Prev", {page = -1}, page > 1)
     button(60, 60, "Next >", {page = 1}, page < page_count())
-    centered(120, y + 8, gfx.width - 194, page .. "/" .. page_count(), colors.muted)
-    button(gfx.width - 74, 74, "Refresh", {refresh = true}, true)
+    centered(120, y + 8, desktop_width - 194, page .. "/" .. page_count(), colors.muted)
+    button(desktop_width - 74, 74, "Refresh", {refresh = true}, true)
 
     if app_menu then
         targets = {}
         local suspended = runner:has_session(app_menu.path)
-        gfx.rectfill(24, 26, gfx.width - 48, 126, colors.panel)
-        gfx.rect(24, 26, gfx.width - 48, 126, colors.accent)
+        gfx.rectfill(24, 26, desktop_width - 48, 126, colors.panel)
+        gfx.rect(24, 26, desktop_width - 48, 126, colors.accent)
         gfx.print(32, 34, shortened(app_menu.name, 40), colors.text)
         local function menu_button(y, label, action)
-            target(32, y, gfx.width - 64, 22, action)
+            target(32, y, desktop_width - 64, 22, action)
             gfx.print(40, y + 6, label, colors.text)
         end
         if confirm_forget then
@@ -204,12 +213,12 @@ local function draw()
     end
     if message then
         targets = {}
-        target(0, 0, gfx.width, gfx.height, {dismiss = true})
-        gfx.rectfill(8, 28, gfx.width - 16, gfx.height - 60, colors.panel)
-        gfx.rect(8, 28, gfx.width - 16, gfx.height - 60, colors.error)
+        target(0, 0, desktop_width, gfx.height, {dismiss = true})
+        gfx.rectfill(8, 28, desktop_width - 16, gfx.height - 60, colors.panel)
+        gfx.rect(8, 28, desktop_width - 16, gfx.height - 60, colors.error)
         gfx.print(16, 36, "Shell message", colors.error)
         local text = message:gsub("[%c]", " ")
-        local width = math.max(1, math.floor((gfx.width - 32) / 6))
+        local width = math.max(1, math.floor((desktop_width - 32) / 6))
         local count = math.max(1, math.floor((gfx.height - 108) / 10))
         for row = 1, count do
             local line = text:sub((row - 1) * width + 1, row * width)
@@ -222,7 +231,33 @@ local function draw()
     end
 end
 
+local function release_app_frame()
+    if app_frame then
+        gfx.target()
+        app_frame:close()
+        app_frame = nil
+    end
+    active_app = nil
+    taskbar:reset()
+end
+
+local function launch_app(app)
+    release_app_frame()
+    message = nil
+    local ok, err = pcall(function()
+        if app.window then
+            app_frame = assert(gfx.create_sprite(300, 180))
+            gfx.target(300, 180)
+        end
+        active_app = app
+        runner:launch(app.path, {})
+    end)
+    input.reset()
+    if not ok then show_error(err) end
+end
+
 local function restore_shell()
+    release_app_frame()
     input.reset()
     touch_held, pressed = true, nil
     app_menu, confirm_forget = nil, false
@@ -243,18 +278,28 @@ local function update_system(dt)
     status_elapsed = status_elapsed + dt
     local dirty = status_elapsed >= 0.5 and refresh_status()
     if runner:active() then
+        local switch_to = app_frame and taskbar:route(input.touch())
+        local previous = active_app
+        if switch_to then runner:suspend() end
         runner:update(dt)
         if not runner:active() then
-            restore_shell()
-        elseif message then
-            -- Rejection leaves the app alive; show its reason above the app's frame.
-            gfx.rectfill(0, 0, gfx.width, 16, colors.panel)
-            gfx.print(4, 4, shortened(message:gsub("[%c]", " "), math.floor((gfx.width - 8) / 6)), colors.error)
+            if switch_to and switch_to ~= Taskbar.HOME and runner:has_session(previous.path) then
+                launch_app(switch_to)
+            end
+            if not runner:active() then restore_shell() end
         end
         return
     end
     input.txt() -- The launcher has no text input; do not accumulate keystrokes.
     local contacts = input.touch()
+    local selected = taskbar:route(contacts)
+    if selected and selected ~= Taskbar.HOME then
+        app_menu, confirm_forget = nil, false
+        launch_app(selected)
+        if not runner:active() then restore_shell() end
+        return
+    end
+    contacts = taskbar:app_touch(contacts)
     if #contacts > 0 then
         local contact = contacts[1]
         if not touch_held and #contacts == 1 then
@@ -287,9 +332,7 @@ local function update_system(dt)
         if action then
             if action.app then
                 -- Launch on release so the app cannot inherit the launcher tap.
-                local ok, err = pcall(runner.launch, runner, action.app.path, {})
-                input.reset()
-                if not ok then show_error(err) end
+                launch_app(action.app)
                 if not runner:active() then restore_shell() end
                 return
             elseif action.confirm_forget then
@@ -315,6 +358,26 @@ end
 
 -- Keep presentation in the OS, after app drawing and any shell overlays.
 function update(dt)
+    if app_frame then
+        gfx.target(300, 180)
+        gfx.spr(app_frame, 0, 0)
+    end
     update_system(dt)
+    if runner:active() then
+        if app_frame then
+            gfx.flip(app_frame)
+            gfx.target()
+            gfx.spr(app_frame, 0, 0)
+        end
+        if message then
+            -- Rejection leaves the app alive; show its reason above the app's frame.
+            local width = app_frame and desktop_width or gfx.width
+            gfx.rectfill(0, 0, width, 16, colors.panel)
+            gfx.print(4, 4, shortened(message:gsub("[%c]", " "), math.floor((width - 8) / 6)), colors.error)
+        end
+    end
+    if not runner:active() or app_frame then
+        taskbar:draw(apps, runner, colors, active_app, battery)
+    end
     gfx.flip()
 end

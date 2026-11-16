@@ -159,9 +159,11 @@ end
 local function tab_strip(state)
     gfx.rectfill(0, 0, gfx.width, header_height, panel)
     local tabs = state.tabs
-    local strip_end = arrow_width + tab_width * View.visible_tabs
+    local menu_width = gfx.width - arrow_width * 2 - tab_width * View.visible_tabs
+    local strip_start = menu_width + arrow_width
+    local strip_end = strip_start + tab_width * View.visible_tabs
     if state.first_tab > 1 then
-        button(state, 0, 0, arrow_width, header_height, "<", "strip_previous")
+        button(state, menu_width, 0, arrow_width, header_height, "<", "strip_previous")
     end
     if state.first_tab + View.visible_tabs <= #tabs.items then
         button(state, strip_end, 0, arrow_width, header_height, ">", "strip_next")
@@ -173,12 +175,11 @@ local function tab_strip(state)
             local marker = tab.document.modified and "*" or ""
             local name = tab.untitled and ("New " .. tab.untitled) or display_path(tab.name)
             local label = shorten(name, 10 - #marker) .. marker
-            button(state, arrow_width + slot * tab_width, 0, tab_width - 1, header_height,
+            button(state, strip_start + slot * tab_width, 0, tab_width - 1, header_height,
                 label, index, index == tabs.active)
         end
     end
-    local x = strip_end + arrow_width
-    local width = gfx.width - x
+    local x, width = 0, menu_width
     local open = state.mode == "menu"
     button(state, x, 0, width, header_height, nil, "menu", open)
     local bar_width = 12
@@ -219,7 +220,7 @@ local menu = {
 }
 
 local function draw_menu(state)
-    local x, y, width, step = 208, 14, 108, 10
+    local x, y, width, step = 4, 14, 108, 10
     local padding = 2
     local left, top = x - padding, y - padding
     local panel_width = width + padding * 2
