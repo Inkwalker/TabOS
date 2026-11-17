@@ -29,12 +29,13 @@ local function make_app_require(root, env)
     end, loaded
 end
 
-function Runner.new(raw_input, report)
-    return setmetatable({input = raw_input, report = report, launches = 0, sessions = {}}, Runner)
+function Runner.new(raw_input, report, services)
+    return setmetatable({input = raw_input, report = report, services = services,
+        launches = 0, sessions = {}}, Runner)
 end
 
 local function session_key(path)
-    return paths.resolve_path(path, "/"):lower()
+    return fs.fat_name_key(paths.resolve_path(path, "/"))
 end
 
 function Runner:session(path)
@@ -84,6 +85,8 @@ function Runner:transition()
         self:finish("exit")
     elseif app.suspend_requested then
         app.suspend_requested = nil
+        local opening = app.open_requested
+        app.open_requested = nil
         local ok, err = pcall(function()
             local save = rawget(app.env, "save_state")
             local state, message
@@ -96,11 +99,13 @@ function Runner:transition()
         end)
         -- Requests made from save_state belong to this attempt, not the next frame.
         app.suspend_requested = nil
+        app.open_requested = nil
         if app.exit_requested then
             if not ok then self.report(err) end
             self:finish("exit")
         elseif ok then
             self:finish("suspend")
+            if opening then self.services.open(opening) end
         else
             self.report(err)
         end
@@ -132,6 +137,15 @@ function Runner:launch(path, args)
                 return paths.resolve_path(relative_path, path)
             end,
         }}, {__index = _ENV})
+        if self.services then
+            env.os.open = function(path, mode)
+                if not app.open_requested then
+                    app.open_requested = {path = path, mode = mode}
+                    app.suspend_requested = true
+                end
+            end
+            env.os.refresh_app_registry = self.services.refresh
+        end
         app.env, env._G = env, env
         local app_require, app_loaded = make_app_require(path, env)
         env.require = app_require

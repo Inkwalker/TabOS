@@ -8,6 +8,8 @@ Use path strings such as `/sd/file.lua` or `/rec/sys/system.lua`. `/rec` is read
 | --- | --- |
 | `fs.list(path)` | Array of entries with `name` and optional `type` (`"dir"` or `"file"`), in directory order; excludes `.` and `..`. |
 | `fs.stat(path)` | Table with `type` (`"dir"` or `"file"`), `size` in bytes, and `mtime` in Unix seconds. |
+| `fs.open_new(path)` | Writable binary file handle. Fails if the path already exists. |
+| `fs.fat_name_key(name)` | Case-insensitive comparison key for a FAT filename or path. |
 | `fs.mkdir(path)` | `true` after creating one directory. |
 | `fs.rename(from, to)` | `true` after renaming or moving a path. |
 | `fs.remove(path)` | `true` after removing a file or empty directory. |

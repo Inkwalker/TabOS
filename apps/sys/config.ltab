@@ -1,4 +1,5 @@
 {
+    files_app = "/sd/apps/files.tap",
     -- Enable only when a battery is installed.
     auto_shutdown = true,
     dim_after_seconds = 60,

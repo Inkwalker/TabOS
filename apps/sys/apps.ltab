@@ -1,0 +1,5 @@
+{
+    [".lua"] = "/sd/apps/code.tap",
+    [".txt"] = "/sd/apps/code.tap",
+    [".ltab"] = "/sd/apps/code.tap",
+}

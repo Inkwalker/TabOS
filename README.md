@@ -10,7 +10,7 @@ At boot, press **Del** within three seconds to enter recovery shell on the recov
 TabOS loads `/sd/sys/system.lua`, falling back to `/rec/sys/system.lua` if missing or unloadable.
 Exact boot sequence is defined in `/recovery_files/boot.lua`.
 
-This repo also includes set of development and example apps located in the `/apps` folder. Copy them to the SD card after flashing the firmware.
+This repo includes system scripts and app bundles in `apps/`. After flashing, copy the contents of `apps/sys/` to `/sd/sys/` and the `apps/*.tap` bundle directories to `/sd/apps/`. On an existing installation, keep your `/sd/sys/apps.ltab` preferences and add `files_app = "/sd/apps/files.tap"` to your system config if needed.
 
 ## Build and flash
 

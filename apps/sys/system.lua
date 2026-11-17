@@ -10,6 +10,7 @@ local battery_monitor = require("battery_monitor")
 local apps, targets = {}, {}
 local page = 1
 local message
+local message_age = 0
 local status_elapsed = 0
 local touch_held = true -- Wait for boot/transition contacts to be released.
 local pressed
@@ -18,6 +19,11 @@ local app_menu
 local confirm_forget = false
 local app_frame
 local active_app
+local opened_apps = {}
+local task_apps = {}
+local chooser, pending_open
+local Registry = require("associations")
+local associations = Registry.new(config.files_app)
 local Taskbar = require("taskbar")
 local taskbar = Taskbar.new()
 local desktop_width = 300
@@ -41,13 +47,36 @@ local cell_height = math.floor((gfx.height - header - footer) / rows)
 
 local function show_error(err)
     message = tostring(err)
+    message_age = 0
 end
 
 local app_input = setmetatable({touch = function()
     local contacts = raw_input.touch()
     return app_frame and taskbar:app_touch(contacts) or contacts
 end}, {__index = raw_input})
-local runner = require("app_runner").new(app_input, show_error)
+local runner = require("app_runner").new(app_input, show_error, {
+    open = function(request) pending_open = request end,
+    refresh = function() return associations:refresh() end,
+})
+
+local function refresh_task_apps()
+    local known, extra = {}, {}
+    local active_key = active_app and fs.fat_name_key(active_app.path)
+    task_apps = {}
+    for _, app in ipairs(apps) do
+        task_apps[#task_apps + 1] = app
+        known[fs.fat_name_key(app.path)] = true
+    end
+    for path, app in pairs(opened_apps) do
+        if runner:has_session(app.path) then
+            if not known[path] then extra[#extra + 1] = app end
+        elseif path ~= active_key then
+            opened_apps[path] = nil
+        end
+    end
+    table.sort(extra, function(a, b) return a.path < b.path end)
+    for _, app in ipairs(extra) do task_apps[#task_apps + 1] = app end
+end
 
 local function refresh_status()
     local clock_changed = clock.refresh()
@@ -211,6 +240,35 @@ local function draw()
             menu_button(118, "Cancel", {cancel_menu = true})
         end
     end
+    if chooser then
+        targets = {}
+        gfx.rectfill(8, 8, 284, 164, colors.panel)
+        gfx.rect(8, 8, 284, 164, colors.accent)
+        gfx.print(16, 16, "Open With", colors.text)
+        local name = chooser.path:match("[^/]+$")
+        gfx.print(16, 29, shortened(name, 44), colors.muted)
+        local first = math.floor((chooser.selected - 1) / 4) * 4 + 1
+        for index = first, math.min(first + 3, #chooser.candidates) do
+            local y = 42 + (index - first) * 20
+            local app = chooser.candidates[index]
+            target(16, y, 268, 20, {candidate = index})
+            if index == chooser.selected then gfx.rectfill(16, y, 268, 20, colors.pressed) end
+            gfx.print(22, y + 6, shortened(app.name, 27), colors.text)
+            gfx.print(191, y + 6, shortened(app.path:match("[^/]+$"), 15), colors.muted)
+        end
+        local function choice(x, y, w, label, action)
+            target(x, y, w, 22, action)
+            centered(x, y + 7, w, label, colors.accent)
+        end
+        if first > 1 then choice(16, 122, 46, "Prev", {candidate = first - 4}) end
+        if first + 4 <= #chooser.candidates then
+            choice(238, 122, 46, "Next", {candidate = first + 4})
+        end
+        centered(62, 129, 176, chooser.selected .. "/" .. #chooser.candidates, colors.muted)
+        choice(16, 144, 90, "Just Once", {open_choice = "once"})
+        choice(106, 144, 88, "Always", {open_choice = "always"})
+        choice(194, 144, 90, "Cancel", {cancel_chooser = true})
+    end
     if message then
         targets = {}
         target(0, 0, desktop_width, gfx.height, {dismiss = true})
@@ -241,7 +299,7 @@ local function release_app_frame()
     taskbar:reset()
 end
 
-local function launch_app(app)
+local function launch_app(app, args)
     release_app_frame()
     message = nil
     local ok, err = pcall(function()
@@ -250,24 +308,58 @@ local function launch_app(app)
             gfx.target(300, 180)
         end
         active_app = app
-        runner:launch(app.path, {})
+        opened_apps[fs.fat_name_key(app.path)] = {
+            path = app.path, name = app.name, window = app.window,
+        }
+        runner:launch(app.path, args)
     end)
     input.reset()
+    refresh_task_apps()
     if not ok then show_error(err) end
 end
 
-local function restore_shell()
+local function restore_shell(refresh_launcher)
     release_app_frame()
     input.reset()
     touch_held, pressed = true, nil
     app_menu, confirm_forget = nil, false
-    scan_apps()
+    if refresh_launcher then scan_apps() end
+    refresh_task_apps()
     refresh_status()
     draw()
 end
 
 function init()
+    scan_apps()
+    associations:refresh()
     restore_shell()
+end
+
+local function open_result(result, err)
+    if result and result.app then
+        launch_app(result.app, result.args)
+        if result.warning and not message then show_error(result.warning) end
+    elseif result then
+        chooser = result
+        chooser.selected = 1
+    else
+        show_error(err)
+    end
+end
+
+local function process_open()
+    local request = pending_open
+    pending_open = nil
+    message = nil
+    open_result(associations:resolve(request))
+end
+
+local function choose_handler(always)
+    local request = chooser
+    chooser = nil
+    open_result(associations:choose(request.path, request.extension,
+        request.candidates[request.selected], always))
+    if not runner:active() then restore_shell() end
 end
 
 local function update_system(dt)
@@ -277,27 +369,52 @@ local function update_system(dt)
     end
     status_elapsed = status_elapsed + dt
     local dirty = status_elapsed >= 0.5 and refresh_status()
-    if runner:active() then
+    if pending_open and not runner:active() then
+        process_open()
+        if not runner:active() then restore_shell() end
+        return
+    elseif runner:active() then
+        message_age = message_age + dt
+        if message_age >= 4 then message = nil end
         local switch_to = app_frame and taskbar:route(input.touch())
         local previous = active_app
-        if switch_to then runner:suspend() end
+        if switch_to then
+            message = nil
+            runner:suspend()
+        end
         runner:update(dt)
         if not runner:active() then
-            if switch_to and switch_to ~= Taskbar.HOME and runner:has_session(previous.path) then
+            local opening = pending_open ~= nil
+            if pending_open then
+                process_open()
+            elseif switch_to and switch_to ~= Taskbar.HOME and runner:has_session(previous.path) then
                 launch_app(switch_to)
             end
-            if not runner:active() then restore_shell() end
+            if not runner:active() then restore_shell(not opening) end
         end
         return
     end
     input.txt() -- The launcher has no text input; do not accumulate keystrokes.
     local contacts = input.touch()
     local selected = taskbar:route(contacts)
-    if selected and selected ~= Taskbar.HOME then
+    if selected and selected ~= Taskbar.HOME and not chooser and not message then
         app_menu, confirm_forget = nil, false
         launch_app(selected)
-        if not runner:active() then restore_shell() end
+        if not runner:active() then restore_shell(not pending_open) end
         return
+    end
+    if chooser and not message then
+        if input.keyp(1, 1) then
+            chooser = nil
+            dirty = true
+        elseif input.keyp(4, 14) then
+            choose_handler(false)
+            return
+        elseif input.keyp(4, 12) or input.keyp(5, 12) then
+            local direction = input.keyp(4, 12) and -1 or 1
+            chooser.selected = math.max(1, math.min(#chooser.candidates, chooser.selected + direction))
+            dirty = true
+        end
     end
     contacts = taskbar:app_touch(contacts)
     if #contacts > 0 then
@@ -333,12 +450,13 @@ local function update_system(dt)
             if action.app then
                 -- Launch on release so the app cannot inherit the launcher tap.
                 launch_app(action.app)
-                if not runner:active() then restore_shell() end
+                if not runner:active() then restore_shell(not pending_open) end
                 return
             elseif action.confirm_forget then
                 confirm_forget = true
             elseif action.forget then
                 runner:forget(action.forget.path)
+                refresh_task_apps()
                 app_menu, confirm_forget = nil, false
             elseif action.cancel_menu then
                 app_menu, confirm_forget = nil, false
@@ -347,8 +465,16 @@ local function update_system(dt)
             elseif action.refresh then
                 message = nil
                 scan_apps()
+                refresh_task_apps()
             elseif action.dismiss then
                 message = nil
+            elseif action.candidate then
+                chooser.selected = action.candidate
+            elseif action.cancel_chooser then
+                chooser = nil
+            elseif action.open_choice then
+                choose_handler(action.open_choice == "always")
+                return
             end
             dirty = true
         end
@@ -377,7 +503,7 @@ function update(dt)
         end
     end
     if not runner:active() or app_frame then
-        taskbar:draw(apps, runner, colors, active_app, battery)
+        taskbar:draw(task_apps, runner, colors, active_app, battery)
     end
     gfx.flip()
 end

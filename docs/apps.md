@@ -35,8 +35,12 @@ Each launch gets fresh globals, an app-local module cache, and an `os` table, pl
 | `os.path(path)` | Resolve a bundle-relative path and normalize `.` and `..`. Preserve absolute paths; an empty path returns the bundle path. |
 | `os.exit()` | Close after the current callback; overrides suspension. |
 | `os.suspend()` | Suspend after the current callback succeeds. |
+| `os.open(path, mode)` | In the graphical shell, suspend after the callback and open an absolute path. Use `"with"` to show Open With for a file or `"browse"` to browse a bundle directory. |
+| `os.refresh_app_registry()` | In the graphical shell, reload associations and discover handlers under `/sd/apps` and at saved handler paths. Returns `true` or `nil, message`. |
 
 Use `os.path("spr/ball.png")` to locate bundled assets.
+
+The association registry reads the optional manifest `file_extensions` array (for example, `{".lua", ".txt"}`). Files with these extensions can pass their path as the first launch argument. A rejected suspension cancels an open request. Opening errors and a cancelled chooser leave the caller suspended and available from the taskbar. See the [file manager specification](specs/file-manager.md) for handler precedence and lifecycle details.
 
 ## Lifecycle hooks
 

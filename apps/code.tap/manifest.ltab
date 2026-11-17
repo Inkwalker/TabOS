@@ -2,4 +2,5 @@
     name = "Code Editor",
     icon = "icon.png",
     window = true,
+    file_extensions = {".lua", ".txt", ".ltab"},
 }

@@ -27,6 +27,18 @@ function fs.list(path) end
 ---@return integer? errno Error number on failure.
 function fs.stat(path) end
 
+---Create a new binary file without overwriting an existing entry.
+---@param path string File path.
+---@return file*? handle Writable file handle, or nil on failure.
+---@return string? message Error message on failure.
+---@return integer? errno Error number on failure.
+function fs.open_new(path) end
+
+---Get the case-insensitive comparison key used for FAT names.
+---@param name string Filename or path.
+---@return string key
+function fs.fat_name_key(name) end
+
 ---Read a data-only Lua table literal without executing code.
 ---@param path string Data file path.
 ---@return table? config Parsed configuration, or nil on failure.
