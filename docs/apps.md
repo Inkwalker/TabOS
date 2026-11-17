@@ -40,7 +40,9 @@ Each launch gets fresh globals, an app-local module cache, and an `os` table, pl
 
 Use `os.path("spr/ball.png")` to locate bundled assets.
 
-The association registry reads the optional manifest `file_extensions` array (for example, `{".lua", ".txt"}`). Files with these extensions can pass their path as the first launch argument. A rejected suspension cancels an open request. Opening errors and a cancelled chooser leave the caller suspended and available from the taskbar. See the [file manager specification](specs/file-manager.md) for handler precedence and lifecycle details.
+The association registry reads the optional manifest `file_extensions` array (for example, `{".lua", ".txt"}`). Handlers receive the file path as the first launch argument. The shell uses a saved handler from `/sd/sys/apps.ltab` when one is configured. Without a saved handler, it launches the sole matching app or shows a chooser if multiple apps match. An unavailable saved handler or a file with no matching app produces an error. Explicit Open With shows the matching apps even when a saved handler exists.
+
+A rejected suspension cancels an open request. Opening errors and a cancelled chooser leave the caller suspended and available from the taskbar.
 
 ## Lifecycle hooks
 

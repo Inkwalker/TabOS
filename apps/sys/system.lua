@@ -405,8 +405,10 @@ local function update_system(dt)
     end
     if chooser and not message then
         if input.keyp(1, 1) then
-            chooser = nil
-            dirty = true
+            chooser, pressed = nil, nil
+            touch_held = #contacts > 0
+            draw()
+            return
         elseif input.keyp(4, 14) then
             choose_handler(false)
             return

@@ -16,6 +16,7 @@ The firmware opens these libraries before running the boot script.
 - Global functions — `assert`, `collectgarbage`, `dofile`, `error`, `getmetatable`, `ipairs`, `load`, `loadfile`, `next`, `pairs`, `pcall`, `print`, `rawequal`, `rawget`, `rawlen`, `rawset`, `select`, `setmetatable`, `tonumber`, `tostring`, `type`, `warn`, `xpcall`
 
 - `package`
+- `coroutine`
 - `io`
 - `math`
 - `string`

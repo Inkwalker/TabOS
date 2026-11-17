@@ -39,10 +39,12 @@ local function refresh()
         local info = entry.type and entry or fs.stat(path)
         local kind = info and info.type
         local key = Paths.key(path)
+        local app_entry = kind == "dir" and entry.name:sub(-4):lower() == ".tap"
+            and fs.stat(Paths.join(path, "app.lua"))
         state.entries[#state.entries + 1] = {
             path = path, name = entry.name, key = key,
             type = kind, order = entry.name:lower(),
-            app_bundle = kind == "dir" and entry.name:sub(-4):lower() == ".tap",
+            app_bundle = app_entry and app_entry.type == "file",
         }
         if state.selected[key] then
             selected[key] = true
@@ -444,8 +446,7 @@ local function list_keys(text)
     if direction then
         local previous = state.highlight
         show_highlight(previous + direction * (ctrl and View.rows or 1))
-        if not ctrl and held("shift") then
-            select_entry(previous, true)
+        if not ctrl and held("shift") and state.highlight ~= previous then
             select_entry(state.highlight, true)
         end
         return true
