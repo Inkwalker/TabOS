@@ -5,7 +5,7 @@
 namespace lua_vm::memory {
 
 // Ordinary objects leave this much of the shared SRAM budget available for
-// VM stacks and bytecode. Priority allocations may use the entire budget.
+// VM stacks, bytecode, and constants. Priority allocations may use the entire budget.
 constexpr std::size_t internal_budget = 256 * 1024;
 constexpr std::size_t priority_reserve = 64 * 1024;
 constexpr std::size_t psram_threshold = 4 * 1024;

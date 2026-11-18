@@ -20,7 +20,7 @@ constexpr uint32_t internal_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
 constexpr uint32_t psram_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
 
 // Preserve allocation class across growth, shrink, and free. A size heuristic
-// cannot distinguish a large stack/code array from a large table or string.
+// cannot distinguish VM stacks, bytecode, or constants from other objects.
 // ESP heaps need not provide max_align_t alignment. Retain the raw allocation
 // and align the payload explicitly, including after a realloc changes address.
 struct Header {
@@ -36,7 +36,8 @@ void* allocate(void* context, void* ptr, std::size_t old_size, std::size_t size)
     auto& usage = *static_cast<Usage*>(context);
     auto* old_header = ptr ? static_cast<Header*>(ptr) - 1 : nullptr;
     const bool priority = old_header ? old_header->priority :
-        (old_size == TABOS_LUA_ALLOC_STACK || old_size == TABOS_LUA_ALLOC_BYTECODE);
+        (old_size == TABOS_LUA_ALLOC_STACK || old_size == TABOS_LUA_ALLOC_BYTECODE ||
+         old_size == TABOS_LUA_ALLOC_CONSTANTS);
     void* old_allocation = old_header ? old_header->allocation : nullptr;
     const auto old_offset = ptr ? static_cast<char*>(ptr) - static_cast<char*>(old_allocation) : 0;
     const bool was_internal = old_allocation && esp_ptr_internal(old_allocation);

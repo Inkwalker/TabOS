@@ -1,7 +1,8 @@
 """Generate tagged Lua allocation sites without modifying managed sources.
 
-Lua's allocator sees a type tag only on new allocations. Tag initial VM stacks
-and bytecode arrays; the TabOS allocator retains that class across realloc/free.
+Lua's allocator sees a type tag only on new allocations. Tag initial VM stacks,
+bytecode arrays, and constant arrays. The TabOS allocator retains that class
+across realloc/free.
 Refuse unfamiliar upstream code so dependency upgrades cannot silently lose
 the placement policy. Generated files retain the upstream copyright notice.
 """
@@ -9,13 +10,13 @@ import argparse
 from pathlib import Path
 
 
-REPLACEMENTS = {
-    'lstate.c': (
+REPLACEMENTS = (
+    ('lstate.c',
         'L1->stack.p = luaM_newvector(L, BASIC_STACK_SIZE + EXTRA_STACK, StackValue);',
         'L1->stack.p = cast(StackValue *, luaM_malloc_(L,\n'
         '      cast_sizet(BASIC_STACK_SIZE + EXTRA_STACK) * sizeof(StackValue),\n'
         '      TABOS_LUA_ALLOC_STACK));'),
-    'lcode.c': (
+    ('lcode.c',
         '  /* put new instruction in code array */\n'
         '  luaM_growvector(fs->ls->L, f->code, fs->pc, f->sizecode, Instruction,',
         '  /* Tag the initial buffer; subsequent grows retain its allocation class. */\n'
@@ -26,23 +27,39 @@ REPLACEMENTS = {
         '  }\n'
         '  /* put new instruction in code array */\n'
         '  luaM_growvector(fs->ls->L, f->code, fs->pc, f->sizecode, Instruction,'),
-    'lundump.c': (
+    ('lcode.c',
+        '  luaM_growvector(L, f->k, k, f->sizek, TValue, MAXARG_Ax, "constants");',
+        '  if (f->k == NULL) {\n'
+        '    f->k = cast(TValue *, luaM_malloc_(L,\n'
+        '        4 * sizeof(TValue), TABOS_LUA_ALLOC_CONSTANTS));\n'
+        '    f->sizek = 4;  /* same initial capacity as luaM_growaux_ */\n'
+        '  }\n'
+        '  luaM_growvector(L, f->k, k, f->sizek, TValue, MAXARG_Ax, "constants");'),
+    ('lundump.c',
         'f->code = luaM_newvectorchecked(S->L, n, Instruction);',
         'luaM_checksize(S->L, n, sizeof(Instruction));\n'
         '    f->code = cast(Instruction *, luaM_malloc_(S->L,\n'
         '        cast_sizet(n) * sizeof(Instruction), TABOS_LUA_ALLOC_BYTECODE));'),
-}
+    ('lundump.c',
+        'f->k = luaM_newvectorchecked(S->L, n, TValue);',
+        'luaM_checksize(S->L, n, sizeof(TValue));\n'
+        '  f->k = cast(TValue *, luaM_malloc_(S->L,\n'
+        '      cast_sizet(n) * sizeof(TValue), TABOS_LUA_ALLOC_CONSTANTS));'),
+)
 
 
 def generate(component, output):
     prepared = {}
-    for name, (old, new) in REPLACEMENTS.items():
-        source = (component / 'lua' / name).read_text()
+    for name, old, new in REPLACEMENTS:
+        if name not in prepared:
+            prepared[name] = (component / 'lua' / name).read_text()
+        source = prepared[name]
         if source.count(old) != 1:
             raise ValueError(f'Unrecognized Lua allocation site in {name}; review the dependency update')
-        prepared[name] = '#include "lua_memory_tags.h"\n' + source.replace(old, new, 1)
+        prepared[name] = source.replace(old, new, 1)
     output.mkdir(parents=True, exist_ok=True)
     for name, source in prepared.items():
+        source = '#include "lua_memory_tags.h"\n' + source
         path = output / name
         if not path.exists() or path.read_text() != source:
             path.write_text(source)
