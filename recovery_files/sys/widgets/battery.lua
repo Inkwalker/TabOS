@@ -1,13 +1,13 @@
 local battery = {}
 local level, charging
 
-local colors = {
-    background = gfx.rgb(12, 19, 29),
-    track = gfx.rgb(37, 49, 64),
-    normal = gfx.rgb(64, 218, 146),
-    low = gfx.rgb(255, 183, 62),
-    critical = gfx.rgb(255, 92, 97),
-    charging = gfx.rgb(108, 205, 255),
+local defaults = {
+    battery_background = gfx.rgb(12, 19, 29),
+    battery_track = gfx.rgb(37, 49, 64),
+    battery_normal = gfx.rgb(64, 218, 146),
+    battery_low = gfx.rgb(255, 183, 62),
+    battery_critical = gfx.rgb(255, 92, 97),
+    battery_charging = gfx.rgb(108, 205, 255),
 }
 
 function battery.refresh()
@@ -20,27 +20,31 @@ function battery.refresh()
     return changed, level, charging
 end
 
-function battery.draw(x, y, color)
+function battery.draw(x, y, color, colors)
     local body_width, body_height = 16, 7
+    colors = colors or defaults
 
-    gfx.rectfill(x + 1, y + 1, body_width - 1, body_height - 1, colors.background)
+    gfx.rectfill(x + 1, y + 1, body_width - 1, body_height - 1,
+        colors.battery_background or defaults.battery_background)
     gfx.rect(x, y, body_width, body_height, color)
     gfx.rectfill(x - 1, y + 2, 1, body_height - 4, color)
-    gfx.rectfill(x + 2, y + 2, body_width - 4, body_height - 4, colors.track)
+    gfx.rectfill(x + 2, y + 2, body_width - 4, body_height - 4,
+        colors.battery_track or defaults.battery_track)
 
     if level == nil then
         local middle_y = y + math.floor(body_height / 2)
         gfx.line(x + 2, middle_y, x + body_width - 2, middle_y, color)
     elseif level > 0 then
         local fill_width = math.ceil((body_width - 4) * level / 100)
-        local fill = colors.normal
-        if level <= 10 then
-            fill = colors.critical
-        elseif level <= 25 then
-            fill = colors.low
-        end
+        local fill
         if charging then
-            fill = colors.charging
+            fill = colors.battery_charging or defaults.battery_charging
+        elseif level <= 10 then
+            fill = colors.battery_critical or defaults.battery_critical
+        elseif level <= 25 then
+            fill = colors.battery_low or defaults.battery_low
+        else
+            fill = colors.battery_normal or defaults.battery_normal
         end
         gfx.rectfill(x + 2, y + 2, fill_width, body_height - 4, fill)
     end

@@ -1,6 +1,7 @@
 local Taskbar = {}
 Taskbar.__index = Taskbar
 Taskbar.HOME = {}
+local hold_seconds = 0.6
 
 local function contains(item, contact)
     return contact.x >= 300 and contact.x < 320
@@ -18,7 +19,7 @@ function Taskbar:reset()
 end
 
 -- Keep an entire gesture owned by the system once it starts in the bar.
-function Taskbar:route(contacts)
+function Taskbar:route(contacts, dt)
     if #contacts == 0 then
         local item = self.pressed
         self.held, self.owned, self.pressed = false, false, nil
@@ -38,14 +39,23 @@ function Taskbar:route(contacts)
             for _, item in ipairs(self.targets) do
                 if contains(item, contacts[1]) then
                     self.pressed = item
+                    self.press_elapsed = 0
                     item.id = contacts[1].id
                     break
                 end
             end
         end
-    elseif self.pressed and (#contacts ~= 1 or contacts[1].id ~= self.pressed.id
-        or not contains(self.pressed, contacts[1])) then
-        self.pressed = nil
+    elseif self.pressed then
+        local item = self.pressed
+        if #contacts ~= 1 or contacts[1].id ~= item.id or not contains(item, contacts[1]) then
+            self.pressed = nil
+        elseif item.app then
+            self.press_elapsed = self.press_elapsed + dt
+            if self.press_elapsed >= hold_seconds then
+                self.pressed = nil
+                return nil, item.app
+            end
+        end
     end
     self.held = true
 end
@@ -60,17 +70,27 @@ function Taskbar:app_touch(contacts)
 end
 
 function Taskbar:draw(apps, runner, colors, active, battery)
-    local suspended = {}
+    local running, active_index = {}, nil
+    local active_key = active and fs.fat_name_key(active.path)
     for _, app in ipairs(apps) do
-        if runner:has_session(app.path) then suspended[#suspended + 1] = app end
+        if active_key and fs.fat_name_key(app.path) == active_key then
+            running[#running + 1] = app
+            active_index = #running
+        elseif runner:has_session(app.path) then
+            running[#running + 1] = app
+        end
     end
-    local capacity = active and 6 or 7
-    local slots = #suspended > capacity and capacity - 1 or capacity
-    local pages = math.max(1, math.ceil(#suspended / slots))
+    local slots = #running > 7 and 6 or 7
+    local pages = math.max(1, math.ceil(#running / slots))
+    if active_index and active_key ~= self.active_key then
+        self.page = math.ceil(active_index / slots)
+    end
+    self.active_key = active_key
     self.page = math.min(self.page, pages)
     self.targets = {}
     gfx.rectfill(300, 0, 20, 180, colors.panel)
-    battery.draw(302, 2, colors.text)
+    gfx.line(300, 0, 300, 180, colors.highlight)
+    battery.draw(302, 2, colors.text, colors)
     local function icon(app, y, is_active)
         local held = self.pressed and self.pressed.app == app
         gfx.rectfill(300, y, 20, 20, (held or is_active) and colors.pressed or colors.tile)
@@ -89,19 +109,17 @@ function Taskbar:draw(apps, runner, colors, active, battery)
             self.targets[#self.targets + 1] = {y = y, app = app}
         end
     end
-    if active then icon(active, 20, true) end
     local first = (self.page - 1) * slots + 1
-    local top = active and 40 or 20
-    for index = first, math.min(#suspended, first + slots - 1) do
-        icon(suspended[index], top + (index - first) * 20)
+    for index = first, math.min(#running, first + slots - 1) do
+        icon(running[index], 20 + (index - first) * 20, index == active_index)
     end
     if pages > 1 then
         gfx.print(307, 146, ">", colors.text)
         self.targets[#self.targets + 1] = {y = 140, next_page = true, pages = pages}
     end
-    gfx.rectfill(300, 160, 20, 20,
+    gfx.rectfill(301, 161, 18, 18,
         self.pressed and self.pressed.home and colors.pressed or colors.panel)
-    gfx.spr(self.home_icon, 302, 162, gfx.rgb(255, 0, 255))
+    gfx.spr(self.home_icon, 302, 162, colors.home_sprite_key)
     self.targets[#self.targets + 1] = {y = 160, home = true}
 end
 

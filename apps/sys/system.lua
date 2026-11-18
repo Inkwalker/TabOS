@@ -4,7 +4,6 @@ local raw_input = input
 local input = require("input_gate").new(raw_input)
 local config = fs.read_table("/sd/sys/config.ltab") or {}
 local idle = require("idle").new(raw_input, input, config)
-local clock = require("widgets.clock")
 local battery = require("widgets.battery")
 local battery_monitor = require("battery_monitor")
 local apps, targets = {}, {}
@@ -27,9 +26,15 @@ local associations = Registry.new(config.files_app)
 local Taskbar = require("taskbar")
 local taskbar = Taskbar.new()
 local desktop_width = 300
+local shortcuts_path = "/sd/sys/shortcuts.ltab"
+local wallpaper_path = config.wallpaper
+local wallpaper
+if type(wallpaper_path) == "string" and wallpaper_path ~= "" and not wallpaper_path:find("%z") then
+    wallpaper = gfx.load_sprite(wallpaper_path)
+end
 
 local colors = {
-    background = gfx.rgb(9, 15, 24),
+    background = gfx.rgb(19, 33, 49),
     panel = gfx.rgb(12, 19, 29),
     tile = gfx.rgb(25, 37, 54),
     pressed = gfx.rgb(43, 64, 88),
@@ -37,13 +42,25 @@ local colors = {
     text = gfx.rgb(235, 242, 250),
     muted = gfx.rgb(155, 174, 195),
     error = gfx.rgb(255, 92, 97),
+    home_sprite_key = gfx.rgb(255, 0, 255),
 }
-local margin, header, footer = 8, 22, 24
-local columns = math.max(1, math.floor((desktop_width - margin * 2) / 72))
-local rows = math.max(1, math.floor((gfx.height - header - footer) / 60))
-local per_page = columns * rows
-local cell_width = math.floor((desktop_width - margin * 2) / columns)
-local cell_height = math.floor((gfx.height - header - footer) / rows)
+
+local function valid_channel(value)
+    return type(value) == "number" and value >= 0 and value <= 255 and value % 1 == 0
+end
+
+for name, rgb in pairs(fs.read_table("/sd/sys/theme.ltab") or {}) do
+    if type(rgb) == "table" and valid_channel(rgb[1]) and valid_channel(rgb[2]) and valid_channel(rgb[3]) then
+        colors[name] = gfx.rgb(rgb[1], rgb[2], rgb[3])
+    end
+end
+
+local margin = 8
+local cell_width, cell_height = 70, 54
+local columns = math.floor((desktop_width - margin * 2) / cell_width)
+local rows = math.floor((gfx.height - margin * 2) / cell_height)
+local desktop_slots = columns * rows
+local per_page = desktop_slots
 
 local function show_error(err)
     message = tostring(err)
@@ -68,9 +85,9 @@ local function refresh_task_apps()
         known[fs.fat_name_key(app.path)] = true
     end
     for path, app in pairs(opened_apps) do
-        if runner:has_session(app.path) then
+        if path == active_key or runner:has_session(app.path) then
             if not known[path] then extra[#extra + 1] = app end
-        elseif path ~= active_key then
+        else
             opened_apps[path] = nil
         end
     end
@@ -79,74 +96,44 @@ local function refresh_task_apps()
 end
 
 local function refresh_status()
-    local clock_changed = clock.refresh()
     local battery_changed, level, charging = battery.refresh()
     battery_monitor.update(level, charging, config.auto_shutdown)
     status_elapsed = 0
-    return clock_changed or battery_changed
+    return battery_changed
 end
 
 local function page_count()
     return math.max(1, math.ceil(#apps / per_page))
 end
 
-local function scan_apps()
+local function load_shortcuts()
+    local paths, err, code = fs.read_table(shortcuts_path)
+    if not paths and code ~= 2 then
+        if not message then show_error(err or ("Cannot read " .. shortcuts_path)) end
+        return
+    end
     for _, app in ipairs(apps) do
         if app.icon then app.icon:close() end
     end
     apps = {}
-    local directories = {"/sd"}
-    while #directories > 0 do
-        local directory = table.remove(directories)
-        local entries, err = fs.list(directory)
-        if not entries then
-            show_error(err or ("Cannot read " .. directory))
-        else
-            for _, entry in ipairs(entries) do
-                if entry.type == "dir" then
-                    local name = entry.name
-                    local path = directory .. "/" .. name
-                    if name:sub(-4):lower() == ".tap" then
-                        local main = fs.stat(path .. "/app.lua")
-                        if main and main.type == "file" then
-                            local app = {name = name:sub(1, -5), path = path, window = false}
-                            local manifest = fs.read_table(path .. "/manifest.ltab")
-                            if manifest then
-                                app.window = manifest.window == true
-                                if type(manifest.name) == "string" and manifest.name:find("%S")
-                                    and not manifest.name:find("%c") then
-                                    app.name = manifest.name
-                                end
-                                local icon = manifest.icon
-                                if type(icon) == "string" and icon ~= ""
-                                    and not icon:find("[%c\\:]") and icon:sub(1, 1) ~= "/" then
-                                    local safe = true
-                                    for part in icon:gmatch("[^/]+") do
-                                        if part == ".." then safe = false end
-                                    end
-                                    if safe then
-                                        app.icon = gfx.load_sprite(path .. "/" .. icon)
-                                        if app.icon and (app.icon.width > 28 or app.icon.height > 28) then
-                                            app.icon:close()
-                                            app.icon = nil
-                                        end
-                                    end
-                                end
-                            end
-                            apps[#apps + 1] = app
-                        end
-                    else
-                        directories[#directories + 1] = path
-                    end
+    local seen = {}
+    for _, path in ipairs(paths or {}) do
+        local app = Registry.bundle(path)
+        local key = app and fs.fat_name_key(app.path)
+        if key and not seen[key] then
+            seen[key] = true
+            if app.icon_path then
+                app.icon = gfx.load_sprite(app.icon_path)
+                if app.icon and (app.icon.width > 28 or app.icon.height > 28) then
+                    app.icon:close()
+                    app.icon = nil
                 end
             end
+            apps[#apps + 1] = app
         end
     end
-    table.sort(apps, function(a, b)
-        local left, right = a.name:lower(), b.name:lower()
-        if left == right then return a.path < b.path end
-        return left < right
-    end)
+    -- Leave the last cell free for navigation only when the desktop overflows.
+    per_page = #apps > desktop_slots and desktop_slots - 1 or desktop_slots
     page = math.min(page, page_count())
 end
 
@@ -173,20 +160,17 @@ end
 local function draw()
     targets = {}
     gfx.cls(colors.background)
-    gfx.rectfill(0, 0, desktop_width, 16, colors.panel)
-    gfx.print(8, 4, "TabOS", colors.text)
-    clock.draw(desktop_width - 36, 4, colors.text)
-
+    if wallpaper then gfx.spr(wallpaper, 0, 0) end
     local first = (page - 1) * per_page + 1
     for index = first, math.min(#apps, first + per_page - 1) do
         local app = apps[index]
         local slot = index - first
-        local x = margin + (slot % columns) * cell_width
-        local y = header + math.floor(slot / columns) * cell_height
+        local x = margin + math.floor(slot / rows) * cell_width
+        local y = margin + (slot % rows) * cell_height
         local width, height = cell_width - 4, cell_height - 4
         target(x, y, width, height, {app = app})
         local held = pressed and pressed.action.app == app
-        gfx.rectfill(x, y, width, height, held and colors.pressed or colors.tile)
+        if held then gfx.rectfill(x, y, width, height, colors.pressed) end
         local icon_x = x + math.floor((width - 28) / 2)
         if app.icon then
             gfx.spr(app.icon, icon_x + math.floor((28 - app.icon.width) / 2),
@@ -195,29 +179,28 @@ local function draw()
             gfx.rectfill(icon_x, y + 6, 28, 28, colors.accent)
             centered(icon_x, y + 16, 28, app.name:sub(1, 1):upper(), colors.background)
         end
-        if runner:has_session(app.path) then
-            gfx.rectfill(icon_x + 20, y + 6, 8, 8, colors.background)
-            gfx.rectfill(icon_x + 22, y + 8, 1, 4, colors.text)
-            gfx.rectfill(icon_x + 25, y + 8, 1, 4, colors.text)
-        end
         local label = shortened(app.name, math.floor((width - 4) / 6))
         centered(x, y + 42, width, label, colors.text)
     end
     if #apps == 0 then
-        centered(0, header + 34, desktop_width, "No .tap apps on SD card", colors.muted)
-        centered(0, header + 48, desktop_width, "Copy apps, then tap Refresh", colors.muted)
+        centered(0, 74, desktop_width, "No desktop shortcuts", colors.muted)
+        centered(0, 88, desktop_width, "Add apps to " .. shortcuts_path, colors.muted)
     end
 
-    local y = gfx.height - footer
-    gfx.rectfill(0, y, desktop_width, footer, colors.panel)
-    local function button(x, width, label, action, enabled)
-        if enabled then target(x, y, width, footer, action) end
-        centered(x, y + 8, width, label, enabled and colors.text or colors.muted)
+    local pages = page_count()
+    if pages > 1 then
+        local x = margin + (columns - 1) * cell_width
+        local y = margin + rows * cell_height - 24
+        local function page_button(left, label, direction)
+            local enabled = page + direction >= 1 and page + direction <= pages
+            if enabled then target(left, y, 20, 20, {page = direction}) end
+            gfx.rectfill(left, y, 20, 20, colors.panel)
+            centered(left, y + 6, 20, label, enabled and colors.text or colors.muted)
+        end
+        page_button(x, "<", -1)
+        centered(x + 20, y + 6, 30, page .. "/" .. pages, colors.muted)
+        page_button(x + 50, ">", 1)
     end
-    button(0, 60, "< Prev", {page = -1}, page > 1)
-    button(60, 60, "Next >", {page = 1}, page < page_count())
-    centered(120, y + 8, desktop_width - 194, page .. "/" .. page_count(), colors.muted)
-    button(desktop_width - 74, 74, "Refresh", {refresh = true}, true)
 
     if app_menu then
         targets = {}
@@ -318,21 +301,20 @@ local function launch_app(app, args)
     if not ok then show_error(err) end
 end
 
-local function restore_shell(refresh_launcher)
+local function restore_shell(refresh_shortcuts)
     release_app_frame()
     input.reset()
     touch_held, pressed = true, nil
     app_menu, confirm_forget = nil, false
-    if refresh_launcher then scan_apps() end
+    if refresh_shortcuts then load_shortcuts() end
     refresh_task_apps()
     refresh_status()
     draw()
 end
 
 function init()
-    scan_apps()
     associations:refresh()
-    restore_shell()
+    restore_shell(true)
 end
 
 local function open_result(result, err)
@@ -376,9 +358,13 @@ local function update_system(dt)
     elseif runner:active() then
         message_age = message_age + dt
         if message_age >= 4 then message = nil end
-        local switch_to = app_frame and taskbar:route(input.touch())
+        local switch_to, forget
+        if app_frame then switch_to, forget = taskbar:route(input.touch(), dt) end
         local previous = active_app
-        if switch_to then
+        if forget then
+            runner:forget(forget.path)
+            refresh_task_apps()
+        elseif switch_to then
             message = nil
             runner:suspend()
         end
@@ -396,12 +382,19 @@ local function update_system(dt)
     end
     input.txt() -- The launcher has no text input; do not accumulate keystrokes.
     local contacts = input.touch()
-    local selected = taskbar:route(contacts)
-    if selected and selected ~= Taskbar.HOME and not chooser and not message then
-        app_menu, confirm_forget = nil, false
-        launch_app(selected)
-        if not runner:active() then restore_shell(not pending_open) end
-        return
+    local selected, forget = taskbar:route(contacts, dt)
+    if not chooser and not message then
+        if forget then
+            runner:forget(forget.path)
+            refresh_task_apps()
+            app_menu, confirm_forget = nil, false
+            dirty = true
+        elseif selected and selected ~= Taskbar.HOME then
+            app_menu, confirm_forget = nil, false
+            launch_app(selected)
+            if not runner:active() then restore_shell(not pending_open) end
+            return
+        end
     end
     if chooser and not message then
         if input.keyp(1, 1) then
@@ -464,10 +457,6 @@ local function update_system(dt)
                 app_menu, confirm_forget = nil, false
             elseif action.page then
                 page = math.max(1, math.min(page_count(), page + action.page))
-            elseif action.refresh then
-                message = nil
-                scan_apps()
-                refresh_task_apps()
             elseif action.dismiss then
                 message = nil
             elseif action.candidate then

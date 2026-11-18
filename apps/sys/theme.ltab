@@ -1,0 +1,22 @@
+{
+    -- RGB channels from 0 to 255.
+    background = {19, 33, 49},
+    panel = {12, 19, 29},
+    highlight = {42, 49, 59},
+    tile = {25, 37, 54},
+    pressed = {43, 64, 88},
+    accent = {108, 205, 255},
+    text = {235, 242, 250},
+    muted = {155, 174, 195},
+    error = {255, 92, 97},
+
+    battery_background = {12, 19, 29},
+    battery_track = {37, 49, 64},
+    battery_normal = {64, 218, 146},
+    battery_low = {255, 183, 62},
+    battery_critical = {255, 92, 97},
+    battery_charging = {108, 205, 255},
+
+    -- Match the transparent pixels in spr/home.png.
+    home_sprite_key = {255, 0, 255},
+}

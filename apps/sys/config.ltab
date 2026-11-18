@@ -1,5 +1,7 @@
 {
     files_app = "/sd/apps/files.tap",
+    -- Optional PNG drawn at native size. Use 300 x 180 to fill the desktop.
+    wallpaper = "/sd/sys/spr/wallpaper.png",
     -- Enable only when a battery is installed.
     auto_shutdown = true,
     dim_after_seconds = 60,

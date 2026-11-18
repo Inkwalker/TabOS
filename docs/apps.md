@@ -1,6 +1,15 @@
 # .tap apps
 
-A `.tap` bundle contains `app.lua` and an optional `lib/` directory for modules. Copy it to the SD card, tap **Refresh**, then tap its launcher icon.
+A `.tap` bundle contains `app.lua` and an optional `lib/` directory for modules. To put it on the desktop, copy the bundle to the SD card and add its absolute path to `/sd/sys/shortcuts.ltab`. The shell displays shortcuts in list order, filling columns from top to bottom.
+
+```lua
+{
+    "/sd/apps/files.tap",
+    "/sd/apps/my-app.tap",
+}
+```
+
+The shell reloads shortcuts at boot and when you return to the desktop after exiting or suspending an app. Duplicate paths and entries that do not point to an available bundle are skipped.
 
 In recovery, enter the bundle path, such as `/sd/hello.tap`. Quote paths and arguments containing spaces. Arguments reach `app.lua` as strings in `...`.
 
@@ -18,11 +27,11 @@ Add `manifest.ltab` to the bundle:
 
 | Field | Rules | Fallback |
 | --- | --- | --- |
-| `name` | Display name for labels, menus, and sorting. | Directory name without `.tap`. |
+| `name` | Display name for labels and menus. | Directory name without `.tap`. |
 | `icon` | Bundle-relative PNG path using `/`; no absolute paths or `..` segments. | Built-in initial icon if missing, invalid, oversized, or unloadable. |
 | `window` | Boolean. `true` opts into a 300 × 180 app canvas with the system taskbar. | `false` (fullscreen) when missing or invalid. |
 
-Use opaque, 28 × 28 pixel icons. Smaller images are centered; transparency is flattened against black. App scans, including **Refresh**, reload manifests and icons. Recovery launches apps by path.
+Use opaque, 28 × 28 pixel icons. Smaller images are centered; transparency is flattened against black. Reloading shortcuts also reloads their manifests and icons. Recovery launches apps by path.
 
 ## Runtime and modules
 
@@ -67,9 +76,9 @@ Snapshots use strings, numbers, booleans, and plain tables as keys and values. T
 
 Relaunching a bundle reloads its code and resumes its session, reusing saved arguments unless new ones are supplied. Successful initialization consumes the session; load or initialization errors preserve it for retry.
 
-Suspended apps show a pause badge. Hold an icon and confirm **Forget Session** to discard its RAM session.
+You can also hold a desktop shortcut and confirm **Forget Session** to discard its RAM session.
 
-The desktop and windowed apps show a 20-pixel taskbar at the right edge, with the battery indicator at the top and Home at the bottom. The active app icon stays visible above suspended app icons. Tap a suspended icon to suspend the current app and resume that session, or to resume it directly from the desktop. Tap Home to suspend the current app and return to the desktop. If saving is rejected, the current app stays active. Taskbar gestures are reserved for the system. Overflow sessions use pages; tap `>` above Home to cycle through them. Fullscreen apps keep the whole screen and do not show the taskbar.
+The desktop and windowed apps show a 20-pixel taskbar at the right edge, with the battery indicator at the top and Home at the bottom. App icons keep their order when you switch between apps, and the taskbar highlights the active app in place. Tap a suspended icon to suspend the current app and resume that session, or to resume it directly from the desktop. Hold a suspended taskbar icon to discard its session immediately. Tap Home to suspend the current app and return to the desktop. If saving is rejected, the current app stays active. Taskbar gestures are reserved for the system. Overflow sessions use pages; tap `>` above Home to cycle through them. Fullscreen apps keep the whole screen and do not show the taskbar.
 
 Custom shells can use:
 
