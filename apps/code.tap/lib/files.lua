@@ -3,7 +3,6 @@ local fat_upper = require("fat_case")
 local Encoding = require("filename_encoding")
 local Files = {}
 local missing = 2 -- ENOENT
-local io_error = 5 -- EIO
 
 local function name_length(name)
     if name == "" or name:find('[%z\1-\31\127/\\:*?"<>|]') or name:match("^[ .]+$") then return nil end
@@ -64,31 +63,6 @@ function Files.target(folder, name)
     if not length or name:match("[ .]$") then return nil, "Enter a valid filename" end
     if length > 255 then return nil, "Filename exceeds 255 characters" end
     return folder .. "/" .. name
-end
-
-function Files.list(folder)
-    local children, err, code = fs.list(folder)
-    -- Retry a transient I/O failure with a fresh directory stream.
-    if not children and code == io_error then
-        children, err = fs.list(folder)
-    end
-    if not children then return nil, err or folder end
-    local entries = {}
-    local recovery_key = Files.key(Files.recovery_directory())
-    for _, child in ipairs(children) do
-        local name = child.name
-        local path = folder .. "/" .. name
-        if child.type and name_length(name) and Files.key(path) ~= recovery_key then
-            entries[#entries + 1] = {name = name, path = path, key = fat_upper(name),
-                directory = child.type == "dir"}
-        end
-    end
-    table.sort(entries, function(a, b)
-        if a.directory ~= b.directory then return a.directory end
-        if a.key ~= b.key then return a.key < b.key end
-        return a.name < b.name
-    end)
-    return entries
 end
 
 -- Return exact bytes, nil for an absent path, or an error. Incompatible

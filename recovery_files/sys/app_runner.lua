@@ -1,33 +1,8 @@
 local paths = require("paths")
 local Gate = require("input_gate")
+local make_bundle_require = require("bundle_require")
 local Runner = {}
 Runner.__index = Runner
-
-local function make_app_require(root, env)
-    local loaded, loading = {}, {}
-    return function(name)
-        assert(type(name) == "string" and name:match("^[%w_][%w_.%-]*$")
-            and not name:find("..", 1, true) and name:sub(-1) ~= ".", "invalid module name")
-        if loaded[name] ~= nil then return loaded[name] end
-        if loading[name] then error("circular app import: " .. name, 2) end
-        local base = root .. "/lib/" .. name:gsub("%.", "/")
-        local file = base .. ".lua"
-        local info = fs.stat(file)
-        if not info or info.type ~= "file" then
-            file = base .. "/init.lua"
-            info = fs.stat(file)
-            if not info or info.type ~= "file" then error("app module not found: " .. name, 2) end
-        end
-        local chunk = paths.check(loadfile(file, "t", env))
-        loading[name] = true
-        local ok, result = pcall(chunk, name, file)
-        loading[name] = nil
-        if not ok then error(result, 0) end
-        if result == nil then result = true end
-        loaded[name] = result
-        return result
-    end, loaded
-end
 
 function Runner.new(raw_input, report, services)
     return setmetatable({input = raw_input, report = report, services = services,
@@ -75,7 +50,7 @@ function Runner:finish(reason)
     audio.stop() -- Includes queued playback; the native stop-all cannot lose to a full queue.
     self.input.txt()
     cleanup = nil
-    app.env, app.input, app.args = nil, nil, nil
+    app.env, app.input, app.args, app.file_dialog = nil, nil, nil, nil
     collectgarbage("collect")
 end
 
@@ -100,6 +75,7 @@ function Runner:transition()
         -- Requests made from save_state belong to this attempt, not the next frame.
         app.suspend_requested = nil
         app.open_requested = nil
+        app.file_dialog = nil
         if app.exit_requested then
             if not ok then self.report(err) end
             self:finish("exit")
@@ -111,6 +87,46 @@ function Runner:transition()
         end
     elseif not rawget(app.env, "update") then
         self:finish("exit")
+    elseif app.file_dialog then
+        local request = app.file_dialog
+        app.file_dialog = nil
+        self.services.file_dialog(request)
+    end
+end
+
+local function request_file_dialog(app, options, callback)
+    if type(options) ~= "table" or (options.mode ~= "open" and options.mode ~= "save") then
+        return nil, "Expected file dialog mode open or save"
+    end
+    if type(callback) ~= "function" then return nil, "Expected a file dialog callback" end
+    if app.file_dialog then return nil, "A file dialog is already queued" end
+    local directory, name, root = options.directory, options.name, options.root
+    for _, path in pairs({directory = directory, root = root}) do
+        if type(path) ~= "string" or path:sub(1, 1) ~= "/" or path:find("[%c\\]") then
+            return nil, "Expected an absolute dialog directory or root"
+        end
+    end
+    if name ~= nil and (type(name) ~= "string" or name == "" or name == "." or name == ".."
+        or name:find("[/%c\\]")) then
+        return nil, "Expected a filename"
+    end
+    app.file_dialog = {
+        options = {mode = options.mode, directory = directory, name = name, root = root},
+        callback = callback,
+    }
+    return true
+end
+
+function Runner:complete_file_dialog(callback, path, err)
+    local app = self.app
+    if not app then return end
+    app.input.reset()
+    local ok, detail = pcall(callback, path, err)
+    if ok then
+        self:transition()
+    else
+        self.report(detail)
+        self:finish("error")
     end
 end
 
@@ -145,9 +161,15 @@ function Runner:launch(path, args)
                 end
             end
             env.os.refresh_app_registry = self.services.refresh
+            if self.services.file_dialog then
+                env.os.file_dialog = function(options, callback)
+                    if self.app ~= app then return nil, "App is no longer active" end
+                    return request_file_dialog(app, options, callback)
+                end
+            end
         end
         app.env, env._G = env, env
-        local app_require, app_loaded = make_app_require(path, env)
+        local app_require, app_loaded = make_bundle_require(path, env)
         env.require = app_require
         env.package = {loaded = app_loaded}
         local chunk = paths.check(loadfile(path .. "/app.lua", "t", env))

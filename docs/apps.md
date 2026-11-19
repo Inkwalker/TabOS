@@ -1,92 +1,75 @@
 # .tap apps
 
-A `.tap` bundle contains `app.lua` and an optional `lib/` directory for modules. To put it on the desktop, copy the bundle to the SD card and add its absolute path to `/sd/sys/shortcuts.ltab`. The shell displays shortcuts in list order, filling columns from top to bottom.
+A `.tap` bundle contains `app.lua` and an optional `lib/` directory. Copy it to the SD card and list its absolute path in `/sd/sys/shortcuts.ltab`, for example `{"/sd/apps/files.tap", "/sd/apps/my-app.tap"}`. The desktop fills columns top to bottom in list order and skips duplicates and unavailable bundles. It reloads shortcuts, manifests, and icons at boot and on return to the desktop.
 
-```lua
-{
-    "/sd/apps/files.tap",
-    "/sd/apps/my-app.tap",
-}
-```
-
-The shell reloads shortcuts at boot and when you return to the desktop after exiting or suspending an app. Duplicate paths and entries that do not point to an available bundle are skipped.
-
-In recovery, enter the bundle path, such as `/sd/hello.tap`. Quote paths and arguments containing spaces. Arguments reach `app.lua` as strings in `...`.
+In recovery, enter the bundle path, for example `/sd/hello.tap`. Quote paths and arguments containing spaces. Launch arguments reach `app.lua` as strings in `...`.
 
 ## Launcher manifest
 
-Add `manifest.ltab` to the bundle:
+Set optional fields in the bundle's `manifest.ltab`.
 
-```lua
-{
-    name = "My App",
-    icon = "icon.png",
-    window = true,
-}
-```
-
-| Field | Rules | Fallback |
-| --- | --- | --- |
-| `name` | Display name for labels and menus. | Directory name without `.tap`. |
-| `icon` | Bundle-relative PNG path using `/`; no absolute paths or `..` segments. | Built-in initial icon if missing, invalid, oversized, or unloadable. |
-| `window` | Boolean. `true` opts into a 300 × 180 app canvas with the system taskbar. | `false` (fullscreen) when missing or invalid. |
-
-Use opaque, 28 × 28 pixel icons. Smaller images are centered; transparency is flattened against black. Reloading shortcuts also reloads their manifests and icons. Recovery launches apps by path.
+| Field | Behavior |
+| --- | --- |
+| `name` | Display name. Defaults to the directory name without `.tap`. |
+| `icon` | Bundle-relative PNG path using `/` and no `..` segments. Use an opaque 28 × 28 image. Smaller icons are centered and transparency is flattened against black. Missing, invalid, oversized, or unreadable icons fall back to the app's initial. |
+| `window` | `true` gives the app a 300 × 180 canvas and shows the system taskbar. Defaults to `false` (fullscreen). |
+| `file_extensions` | File types the app can open, for example `{".lua", ".txt"}`. The file path arrives as the first launch argument. |
 
 ## Runtime and modules
 
-Each launch gets fresh globals, an app-local module cache, and an `os` table, plus shared APIs such as `gfx`, `input`, and `fs`.
-
-`require("tools.format")` searches `lib/tools/format.lua`, then `lib/tools/format/init.lua`. Results are cached in `package.loaded` for that launch (`nil` becomes `true`); circular imports raise an error.
+Each launch gets fresh globals, its own `os` table and module cache, and shared APIs such as `gfx`, `input`, and `fs`. `require("tools.format")` tries `lib/tools/format.lua`, then `lib/tools/format/init.lua`. Results are cached in `package.loaded` (`nil` becomes `true`). Circular imports raise an error.
 
 | API | Behavior |
 | --- | --- |
-| `os.path(path)` | Resolve a bundle-relative path and normalize `.` and `..`. Preserve absolute paths; an empty path returns the bundle path. |
-| `os.exit()` | Close after the current callback; overrides suspension. |
-| `os.suspend()` | Suspend after the current callback succeeds. |
-| `os.open(path, mode)` | In the graphical shell, suspend after the callback and open an absolute path. Use `"with"` to show Open With for a file or `"browse"` to browse a bundle directory. |
+| `os.path(path)` | Resolve paths such as `"spr/ball.png"` from the bundle, normalizing `.` and `..`. Absolute paths stay absolute. An empty path returns the bundle path. |
+| `os.exit()` | Close after the callback. Takes priority over suspension. |
+| `os.suspend()` | Suspend after the callback succeeds. |
+| `os.open(path, mode)` | After the callback, the graphical shell suspends the caller and opens an absolute path. Use `"with"` to choose a file handler or `"browse"` to browse a bundle directory. |
 | `os.refresh_app_registry()` | In the graphical shell, reload associations and discover handlers under `/sd/apps` and at saved handler paths. Returns `true` or `nil, message`. |
 
-Use `os.path("spr/ball.png")` to locate bundled assets.
+For files, the shell uses the saved handler in `/sd/sys/apps.ltab` when configured. Otherwise, it opens the sole match or prompts among several. An unavailable saved handler or zero matches produces an error. Open With always offers the matching apps. A rejected suspension cancels the open request. Open errors and chooser cancellation leave the caller suspended.
 
-The association registry reads the optional manifest `file_extensions` array (for example, `{".lua", ".txt"}`). Handlers receive the file path as the first launch argument. The shell uses a saved handler from `/sd/sys/apps.ltab` when one is configured. Without a saved handler, it launches the sole matching app or shows a chooser if multiple apps match. An unavailable saved handler or a file with no matching app produces an error. Explicit Open With shows the matching apps even when a saved handler exists.
+## File dialog
 
-A rejected suspension cancels an open request. Opening errors and a cancelled chooser leave the caller suspended and available from the taskbar.
+```lua
+local queued, err = os.file_dialog({mode = "open", directory = "/sd"}, function(path, failure)
+    if failure then print(failure) end
+    if path then print("Selected " .. path) end
+end)
+if not queued then print(err) end
+```
+
+The graphical shell accepts one request per app callback. Set `mode` to `"open"` or `"save"`. Optional fields are absolute `directory` and `root` paths and a suggested filename `name`. Queueing returns `true` or `nil, message`. Exit, suspension, or callback errors discard the request.
+
+The picker pauses app updates and calls back once with `path, nil` on selection, `nil, nil` on cancellation, or `nil, message` on failure. Escape, Home, and app switches cancel the picker. Home and app switches deliver cancellation before attempting suspension. The caller handles replacement confirmation and writes the file.
+
+The default provider is `picker.lua` in the configured `files_app` bundle. Open browses SD and Recovery by default. Save As selects destinations on SD. Code limits browsing to `/sd` for Open (**Ctrl+O**), Save As (**Ctrl+Alt+S**), and the first save of an untitled tab.
+
+To override the provider, set `dialogs = {file = "/sd/apps/my-picker.tap/picker.lua"}` in `/sd/sys/config.ltab`. The script exports `new(request, context)`, which returns a picker with `update(dt)`, `draw()`, and `close()` methods. Return nothing from `update` while waiting or `true, path, error` to finish. Draw only in `draw()`. The context supplies gated `input`, shell `colors`, and dialog `width` and `height`. The script has private globals and bundle-local `os.path()` and `require()`.
+
+On device, deploy the updated SD shell and copy `app_runner.lua` and `bundle_require.lua` from `recovery_files/sys/` to `/sd/sys/`, or use an updated recovery image for the runner files. Copy the updated `files.tap` and `code.tap` to `/sd/apps/`.
 
 ## Lifecycle hooks
 
-Define hooks as global functions. All are optional; only `save_state()` return values are used.
+Hooks are optional global functions. Only `save_state()` returns a result the runner uses.
 
 | Hook | Behavior |
 | --- | --- |
-| `init(state, explicit_args)` | Run after `app.lua` unless exit or suspension was requested. `state` is the saved table on resume, otherwise `nil`; `explicit_args` indicates new launch arguments. |
-| `update(dt)` | Run at a target of 30 Hz; `dt` is elapsed seconds. Without this hook, the app closes after initialization. |
-| `save_state()` | On suspension, return a plain table or `nil`. Returning `nil, message` or an invalid payload, or raising an error, cancels suspension. |
-| `deinit(reason)` | Run once on close with `"exit"`, `"forced"` (**Ctrl+Esc**), `"error"`, or `"suspend"`. Cleanup errors are reported. |
+| `init(state, explicit_args)` | Runs after `app.lua` unless it requests exit or suspension. Receives saved state or `nil` and a boolean indicating whether new arguments were supplied. |
+| `update(dt)` | Targets 30 Hz. `dt` is elapsed seconds. Omit this hook for an app that closes after initialization. |
+| `save_state()` | Return a plain table or `nil` on suspension. `nil, message`, an invalid result, or an error cancels suspension. |
+| `deinit(reason)` | Runs once on close with `"exit"`, `"forced"` (**Ctrl+Esc**), `"error"`, or `"suspend"`. The runner reports cleanup errors. |
 
-The shell polls input and blocks keys and touches held across transitions until release. The Lua shell presents the canvas with `gfx.flip()` at the end of each update, after app and shell drawing. Apps do not need to call it. Canvas pixels persist between updates; clipping resets after presentation.
-
-The SD launcher selects the app canvas before loading `app.lua` and calling `init`. Non-fullscreen apps see `gfx.width = 300` and `gfx.height = 180`. Each frame restores their previous pixels, runs the app, saves the canvas to a sprite, and draws it at `(0, 0)` on the full screen canvas before shell overlays and screen presentation. Fullscreen apps keep the existing direct rendering path. Recovery rendering is unchanged.
+The SD shell sets the canvas before loading `app.lua` and calls `gfx.flip()` after app and shell drawing. Pixels persist between updates and clipping resets after presentation. The shell blocks keys and touches held across transitions until release.
 
 ## Suspension and resume
 
-Suspension keeps one RAM session per normalized, case-insensitive bundle path until restart, even without a `save_state()` hook or payload. Exit, **Ctrl+Esc**, and callback errors skip state saving.
+The runner keeps one RAM session per normalized, case-insensitive bundle path until restart, even without a snapshot. Exit, **Ctrl+Esc**, and callback errors skip state saving. Use strings, numbers, booleans, and plain tables in snapshots. Treat the snapshot as read-only during cleanup and restore because the runner stores it by reference.
 
-Snapshots use strings, numbers, booleans, and plain tables as keys and values. The runner checks the root table for a metatable and retains the snapshot by reference; treat it as read-only during cleanup and restoration.
+Relaunching reloads the app and reuses saved arguments unless new ones are supplied. Successful initialization consumes the session. Load or initialization errors preserve it for retry.
 
-Relaunching a bundle reloads its code and resumes its session, reusing saved arguments unless new ones are supplied. Successful initialization consumes the session; load or initialization errors preserve it for retry.
+- Tap **Home** to suspend and return to the desktop. If suspension is rejected, the app stays active.
+- Tap a suspended taskbar icon to resume it, suspending the current app if needed. Tap `>` to cycle through overflow pages.
+- Hold a suspended taskbar icon to discard the session, or hold its desktop shortcut and confirm **Forget Session**.
 
-You can also hold a desktop shortcut and confirm **Forget Session** to discard its RAM session.
-
-The desktop and windowed apps show a 20-pixel taskbar at the right edge, with the battery indicator at the top and Home at the bottom. App icons keep their order when you switch between apps, and the taskbar highlights the active app in place. Tap a suspended icon to suspend the current app and resume that session, or to resume it directly from the desktop. Hold a suspended taskbar icon to discard its session immediately. Tap Home to suspend the current app and return to the desktop. If saving is rejected, the current app stays active. Taskbar gestures are reserved for the system. Overflow sessions use pages; tap `>` above Home to cycle through them. Fullscreen apps keep the whole screen and do not show the taskbar.
-
-Custom shells can use:
-
-| Runner method | Purpose |
-| --- | --- |
-| `runner:suspend()` | Request suspension. |
-| `runner:has_session(path)` | Check for a session. |
-| `runner:session(path)` | Read a session. |
-| `runner:forget(path)` | Discard a session. |
-
-See the [suspension specification](specs/app-suspension.md) for details and [Bricks](../apps/bricks.tap/app.lua) for a modular example.
+Custom shells can request, check, read, or discard sessions with `runner:suspend()`, `runner:has_session(path)`, `runner:session(path)`, and `runner:forget(path)`. See [Bricks](../apps/bricks.tap/app.lua) for a modular app example.

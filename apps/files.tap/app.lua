@@ -28,35 +28,18 @@ local function limit_offset(offset)
 end
 
 local function refresh()
-    local entries, err = Paths.list(state.folder)
-    state.entries = {}
-    state.read_error = not entries and (err or "Directory unavailable") or nil
+    local entries, err = Paths.entries(state.folder, state.descending)
+    state.entries = entries or {}
+    state.read_error = err
     state.selected_count = 0
     if not entries then return end
     local selected = {}
     for _, entry in ipairs(entries) do
-        local path = Paths.join(state.folder, entry.name)
-        local info = entry.type and entry or fs.stat(path)
-        local kind = info and info.type
-        local key = Paths.key(path)
-        local app_entry = kind == "dir" and entry.name:sub(-4):lower() == ".tap"
-            and fs.stat(Paths.join(path, "app.lua"))
-        state.entries[#state.entries + 1] = {
-            path = path, name = entry.name, key = key,
-            type = kind, order = entry.name:lower(),
-            app_bundle = app_entry and app_entry.type == "file",
-        }
-        if state.selected[key] then
-            selected[key] = true
+        if state.selected[entry.key] then
+            selected[entry.key] = true
             state.selected_count = state.selected_count + 1
         end
     end
-    table.sort(state.entries, function(a, b)
-        if (a.type == "dir") ~= (b.type == "dir") then return a.type == "dir" end
-        if a.order == b.order then return a.name < b.name end
-        if state.descending then return a.order > b.order end
-        return a.order < b.order
-    end)
     state.selected = selected
     state.offset = limit_offset(state.offset)
     state.highlight = math.max(1, math.min(state.highlight, #state.entries))

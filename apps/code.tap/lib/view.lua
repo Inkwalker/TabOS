@@ -1,5 +1,4 @@
 local Document = require("document")
-local Browser = require("browser")
 local View = {rows = 18, find_rows = 16, visible_tabs = 4}
 
 local char_width, header_height, row_height = 6, 10, 9
@@ -52,9 +51,6 @@ function View.hit(state, x, y)
         end
     end
     if state.mode == "menu" then return "back" end
-    if state.mode == "browser" and not state.browser.error and x < 276 and y >= 18 and y < 138 then
-        return "browser_list"
-    end
     if state.mode == "edit" and state.tabs:current() and y >= header_height and y < status_y then
         return "viewport"
     end
@@ -286,53 +282,6 @@ local function draw_tabs(state)
     button(state, 262, 154, 54, 16, "Back", "back")
 end
 
-local function draw_browser(state)
-    local browser = state.browser
-    local header = browser.saving and "Save As" or "Open"
-    gfx.print(4, 5, header, accent)
-    local folder = display_path(browser.folder)
-    if #folder > 34 then folder = "..." .. folder:sub(-31) end
-    gfx.print(60, 5, folder, foreground)
-    if browser.folder ~= "/sd" then button(state, 272, 2, 44, 14, "Parent", "browser_parent") end
-
-    if browser.error then
-        gfx.print(4, 29, "Folder unavailable", accent)
-        local detail = display_path(browser.error)
-        for row = 0, 4 do gfx.print(4, 43 + row * 10, detail:sub(row * 51 + 1, (row + 1) * 51), foreground) end
-        button(state, 4, 98, 52, 16, "Retry", "browser_retry")
-    elseif #browser.entries == 0 then
-        gfx.print(4, 29, "Empty folder", muted)
-    else
-        for index = browser.top, math.min(#browser.entries, browser.top + Browser.rows - 1) do
-            local entry = browser.entries[index]
-            local label = (entry.directory and "/ " or "  ") .. shorten(display_path(entry.name), 42)
-            button(state, 4, 18 + (index - browser.top) * Browser.row_height, 272, Browser.row_height - 1,
-                label, index, index == browser.row and browser.focus == "list")
-        end
-        if browser.top > 1 then button(state, 280, 18, 36, 18, "^", "browser_up") end
-        if browser.top + Browser.rows <= #browser.entries then
-            button(state, 280, 119, 36, 18, "v", "browser_down")
-        end
-    end
-
-    if browser.saving and not browser.error then
-        local name = display_path(browser.name)
-        local caret = #display_path(browser.name:sub(1, browser.caret - 1))
-        local first = math.max(0, caret - 43)
-        button(state, 4, 139, 272, 16, name == "" and "Filename" or name:sub(first + 1, first + 44),
-            "browser_name", browser.focus == "name")
-        if browser.focus == "name" and name ~= "" then
-            gfx.rectfill(6 + (caret - first) * char_width, 142, 1, 10, accent)
-        end
-        button(state, 280, 139, 36, 16, "Save", "choose_target")
-        if not state.recovery_error then gfx.print(4, 165, "Tab Filename   Enter Select / Save", muted) end
-    elseif not state.recovery_error then
-        gfx.print(4, 165, "Arrows Select   Enter Open", muted)
-    end
-    button(state, 262, 157, 54, 21, "Back", "back")
-    recovery_status(state)
-end
-
 local dialog_columns, dialog_rows = 50, 8
 
 local function dialog_lines(detail)
@@ -371,14 +320,6 @@ end
 function View.draw(state)
     state.targets = {}
     gfx.cls(background)
-    if state.mode == "browser" or (state.mode == "dialog" and state.browser) then
-        draw_browser(state)
-        if state.mode == "dialog" then
-            state.targets = {}
-            draw_dialog(state)
-        end
-        return
-    end
     local tab = state.tabs:current()
     local doc = tab and tab.document
     tab_strip(state)

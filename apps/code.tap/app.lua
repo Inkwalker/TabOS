@@ -2,7 +2,6 @@ local path = ...
 local Tabs = require("tabs")
 local View = require("view")
 local Keyboard = require("keyboard")
-local Browser = require("browser")
 local Files = require("files")
 local Find = require("find")
 local Document = require("document")
@@ -79,7 +78,7 @@ end
 
 local function return_to_editor()
     state.pending, state.discarded = nil, nil
-    state.browser, state.overwrite, state.dialog = nil, nil, nil
+    state.save_choice, state.overwrite, state.dialog = nil, nil, nil
     change_mode("edit")
 end
 
@@ -130,14 +129,6 @@ local function finish_close()
     end
 end
 
-local function open_browser(saving)
-    if saving and not state.tabs:current() then return end
-    state.browser = Browser.new(state.folder, saving)
-    state.overwrite = nil
-    report(nil)
-    change_mode("browser")
-end
-
 local function save_to(path, expected, save_as)
     local tab = state.tabs:current()
     local doc = tab.document
@@ -148,7 +139,7 @@ local function save_to(path, expected, save_as)
             dialog("Source changed on SD", detail,
                 {{"Reload", "reload"}, {"Save As", "save_as"}, {"Cancel", "back"}}, "back")
         else
-            failure("Save failed", detail, save_as and "browser_back")
+            failure("Save failed", detail, save_as and "choose_another_file")
         end
         return
     end
@@ -157,7 +148,7 @@ local function save_to(path, expected, save_as)
     recovery:retire(tab)
     flush_recovery()
     state.folder = Files.parent(path)
-    state.browser, state.overwrite = nil, nil
+    state.save_choice, state.overwrite = nil, nil
     if detail then
         dialog("Saved with a warning", detail, {{"OK", "saved"}}, "saved")
     else
@@ -166,48 +157,79 @@ local function save_to(path, expected, save_as)
     end
 end
 
-local function choose_save_target()
-    local browser = state.browser
-    if browser.error then return end
-    local path, err = Files.target(browser.folder, browser.name)
-    if not path then failure("Save As", err, "browser_back"); return end
+local function choose_save_target(selection)
+    local resolved, err = Files.resolve(selection)
+    if not resolved then failure("Save As", err); return end
+    local folder, name = Files.parent(resolved), resolved:match("[^/]+$")
+    if folder ~= "/sd" then
+        folder, err = Files.startup_path(folder)
+        if not folder then failure("Save As", err); return end
+    end
+    local path
+    path, err = Files.target(folder, name)
+    if not path then failure("Save As", err); return end
+    state.save_choice = path
     local index = state.tabs:find(Files.key(path))
     if index and index ~= state.tabs.active then
         state.open_target = index
         dialog("File already open in another tab", path,
-            {{"Activate tab", "activate_target"}, {"Back", "browser_back"}}, "browser_back")
+            {{"Activate tab", "activate_target"}, {"Back", "choose_another_file"}}, "choose_another_file")
         return
     end
     local expected
     expected, err = Files.snapshot(path)
-    if err then failure("Cannot use this target", err, "browser_back"); return end
+    if err then failure("Cannot use this target", err, "choose_another_file"); return end
     if expected then
-        path, err = Files.named_child(browser.folder, browser.name)
-        if not path then failure("Cannot use this target", err, "browser_back"); return end
+        path, err = Files.named_child(folder, name)
+        if not path then failure("Cannot use this target", err, "choose_another_file"); return end
         state.overwrite = {path = path, expected = expected}
         dialog("Replace existing file?", path,
-            {{"Replace", "overwrite"}, {"Back", "browser_back"}}, "browser_back")
+            {{"Replace", "overwrite"}, {"Back", "choose_another_file"}}, "choose_another_file")
     else
         save_to(path, nil, true)
     end
 end
 
-local function open_entry()
-    local browser = state.browser
-    local entry = browser.entries[browser.row]
-    if not entry then return end
-    if entry.directory then
-        browser:load(entry.path)
-        change_mode("browser")
-    elseif browser.saving then
-        browser:set_name(entry.name)
-    else
-        local ok, err = state.tabs:open(entry.path)
-        if not ok then failure("Open failed", err, "browser_back"); return end
-        state.folder = browser.folder
-        return_to_editor()
-        reveal_tab()
+local function open_picked_file(selection)
+    local path, err = Files.startup_path(selection)
+    if not path then failure("Open failed", err); return end
+    local ok
+    ok, err = state.tabs:open(path)
+    if not ok then failure("Open failed", err); return end
+    state.folder = Files.parent(path)
+    return_to_editor()
+    reveal_tab()
+end
+
+local function request_picker(saving, previous)
+    local tab = state.tabs:current()
+    if saving and not tab then return end
+    local title = saving and "Save As" or "Open"
+    if not os.file_dialog then
+        failure(title, "Update TabOS to use the file picker")
+        return
     end
+    local options = {mode = saving and "save" or "open", root = "/sd", directory = state.folder}
+    if saving then
+        options.name = previous and previous:match("[^/]+$") or (tab.path and tab.name or tab.name .. ".txt")
+        if previous then options.directory = Files.parent(previous) end
+    end
+    state.save_choice, state.overwrite, state.dialog = nil, nil, nil
+    report(nil)
+    change_mode("edit")
+    local ok, err = os.file_dialog(options, function(selection, detail)
+        if detail then
+            failure(title, detail)
+        elseif not selection then
+            return_to_editor()
+        elseif saving then
+            choose_save_target(selection)
+        else
+            open_picked_file(selection)
+        end
+        if not state.exiting then View.draw(state) end
+    end)
+    if not ok then failure(title, err) end
 end
 
 local function reload()
@@ -433,32 +455,18 @@ local function perform(action)
     elseif action == "find_next" or action == "find_previous" then
         find_match(action == "find_previous")
     elseif action == "open" or action == "save_as" then
-        open_browser(action == "save_as")
+        request_picker(action == "save_as")
     elseif action == "save" and current then
         if current.path then save_to(current.path, current.document.saved, false)
-        else open_browser(true) end
+        else request_picker(true) end
     elseif action == "saved" then
         report("Saved")
         finish_close()
-    elseif action == "choose_target" then
-        choose_save_target()
     elseif action == "overwrite" then
         local target = state.overwrite
         save_to(target.path, target.expected, true)
-    elseif action == "browser_back" then
-        state.dialog, state.overwrite = nil, nil
-        change_mode("browser")
-    elseif action == "browser_parent" then
-        state.browser:load(Files.parent(state.browser.folder))
-        change_mode("browser")
-    elseif action == "browser_retry" then
-        state.browser:load(state.browser.folder)
-        change_mode("browser")
-    elseif action == "browser_name" then
-        state.browser.focus = "name"
-    elseif action == "browser_up" or action == "browser_down" then
-        local browser = state.browser
-        browser:scroll(browser.top + (action == "browser_up" and -Browser.rows or Browser.rows))
+    elseif action == "choose_another_file" then
+        request_picker(true, state.save_choice)
     elseif action == "activate_target" then
         tabs:activate(state.open_target)
         return_to_editor()
@@ -494,10 +502,7 @@ local function perform(action)
         local step = action == "dialog_previous" and -1 or 1
         prompt.page = math.max(1, math.min(View.dialog_pages(prompt), prompt.page + step))
     elseif action == "activate" or type(action) == "number" then
-        if state.mode == "browser" then
-            state.browser:select(action)
-            open_entry()
-        elseif state.mode == "tabs" and action ~= "activate" then
+        if state.mode == "tabs" and action ~= "activate" then
             set_tab_row(action)
         else
             tabs:activate(action == "activate" and state.tab_row or action)
@@ -527,7 +532,6 @@ local function touch_action()
     if #touches == 0 then
         local action, pending = touch_target, gesture
         touch_id, touch_target, gesture = nil, nil, nil
-        if pending and pending.browser then return action end
         if pending and pending.phase == "waiting" then
             pending.word = keyboard.time - pending.started >= long_press_time
             return "place", pending
@@ -542,8 +546,6 @@ local function touch_action()
             gesture = {phase = "waiting", x = touch.x, y = touch.y, top = doc.top, left = doc.left,
                 started = keyboard.time, last_x = touch.x, last_y = touch.y}
             touch_target = nil
-        elseif state.mode == "browser" and (type(touch_target) == "number" or touch_target == "browser_list") then
-            gesture = {browser = true, x = touch.x, y = touch.y, top = state.browser.top}
         end
         return
     end
@@ -553,18 +555,6 @@ local function touch_action()
     end
     if not contact then
         touch_target, gesture = nil, nil
-        return
-    end
-    if gesture and gesture.browser then
-        local dy = contact.y - gesture.y
-        if gesture.drag or math.max(math.abs(contact.x - gesture.x), math.abs(dy)) > drag_threshold then
-            gesture.drag, touch_target = true, nil
-            local top = state.browser.top
-            state.browser:scroll(gesture.top - math.floor(dy / Browser.row_height + 0.5))
-            if state.browser.top ~= top then return "browser_scrolled" end
-        elseif View.hit(state, contact.x, contact.y) ~= touch_target then
-            touch_target = nil
-        end
         return
     end
     if touch_target and View.hit(state, contact.x, contact.y) ~= touch_target then touch_target = nil end
@@ -585,43 +575,6 @@ local function touch_action()
         gesture.dx, gesture.dy = dx, dy
         return "scroll", gesture
     end
-end
-
-local function browser_keys(text)
-    local browser = state.browser
-    if browser.saving and Keyboard.pressed("tab") then
-        browser.focus = browser.focus == "list" and "name" or "list"
-        return true
-    end
-    local enter = Keyboard.pressed("enter")
-    if enter and browser.saving and text:find("[ -~\b]") then
-        browser.focus = "name"
-        browser:edit_name(text:match("^[^\r\n]*"))
-    end
-    if enter then
-        if browser.focus == "name" then choose_save_target() else open_entry() end
-        return true
-    end
-    if keyboard:repeat_press("up") then browser:select(browser.row - 1); return true end
-    if keyboard:repeat_press("down") then browser:select(browser.row + 1); return true end
-    if browser.saving and (browser.focus == "name" or text:find("[ -~\b]")) then
-        local name, caret, focus = browser.name, browser.caret, browser.focus
-        browser.focus = "name"
-        if keyboard:repeat_press("left") then browser:move_caret(-1) end
-        if keyboard:repeat_press("right") then browser:move_caret(1) end
-        if keyboard:repeat_press("backspace") and not Keyboard.pressed("backspace")
-            and not text:find("\b", 1, true) then
-            text = text .. "\b"
-        end
-        if keyboard:repeat_press("delete") then text = text .. "\127" end
-        browser:edit_name(text)
-        return browser.name ~= name or browser.caret ~= caret or focus ~= "name"
-    end
-    if Keyboard.pressed("left") and browser.folder ~= "/sd" then
-        perform("browser_parent")
-        return true
-    end
-    return false
 end
 
 local function dialog_keys(text)
@@ -686,8 +639,6 @@ local function modal_keys(text)
         if Keyboard.pressed("left") then perform("path_previous"); return true end
         if Keyboard.pressed("right") then perform("path_next"); return true end
         if Keyboard.pressed("enter") and state.tab_row > 0 then perform("activate"); return true end
-    elseif mode == "browser" then
-        return browser_keys(text)
     elseif mode == "dialog" then
         return dialog_keys(text)
     elseif mode == "find" then
@@ -826,8 +777,6 @@ function update(dt)
         local doc = state.tabs:current().document
         doc:break_group()
         View.scroll(doc, pending.top, pending.left, pending.dx, pending.dy, pending.vertical)
-        redraw = true
-    elseif action == "browser_scrolled" then
         redraw = true
     elseif action then
         perform(action)

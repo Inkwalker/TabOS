@@ -1,7 +1,8 @@
 -- Keep the recovery lifecycle implementation shared by both shells.
 package.path = package.path .. ";/rec/sys/?.lua"
 local raw_input = input
-local input = require("input_gate").new(raw_input)
+local Gate = require("input_gate")
+local input = Gate.new(raw_input)
 local config = fs.read_table("/sd/sys/config.ltab") or {}
 local idle = require("idle").new(raw_input, input, config)
 local battery = require("widgets.battery")
@@ -21,6 +22,7 @@ local active_app
 local opened_apps = {}
 local task_apps = {}
 local chooser, pending_open
+local file_dialog, pending_file_dialog
 local Registry = require("associations")
 local associations = Registry.new(config.files_app)
 local Taskbar = require("taskbar")
@@ -74,6 +76,7 @@ end}, {__index = raw_input})
 local runner = require("app_runner").new(app_input, show_error, {
     open = function(request) pending_open = request end,
     refresh = function() return associations:refresh() end,
+    file_dialog = function(request) pending_file_dialog = request end,
 })
 
 local function refresh_task_apps()
@@ -273,6 +276,7 @@ local function draw()
 end
 
 local function release_app_frame()
+    pending_file_dialog = nil
     if app_frame then
         gfx.target()
         app_frame:close()
@@ -344,6 +348,64 @@ local function choose_handler(always)
     if not runner:active() then restore_shell() end
 end
 
+local function finish_file_dialog(path, err)
+    local dialog = file_dialog
+    file_dialog = nil
+    if dialog.picker then
+        local ok, detail = pcall(dialog.picker.close, dialog.picker)
+        if not ok then path, err = nil, err or tostring(detail) end
+    end
+    local frame = dialog.frame
+    if frame then
+        gfx.target(frame.width, frame.height)
+        gfx.spr(frame, 0, 0)
+        frame:close()
+    end
+    input.reset()
+    runner:complete_file_dialog(dialog.callback, path, err)
+end
+
+local function start_file_dialog(request)
+    local dialog = {callback = request.callback, input = Gate.new(app_input)}
+    file_dialog = dialog
+    local ok, picker = pcall(function()
+        if not app_frame then
+            local frame = assert(gfx.create_sprite(gfx.width, gfx.height))
+            local captured, err = pcall(gfx.flip, frame)
+            if not captured then
+                frame:close()
+                error(err, 0)
+            end
+            dialog.frame = frame
+        end
+        return require("file_dialog")(config, request.options, {
+            input = dialog.input, colors = colors, width = gfx.width, height = gfx.height,
+        })
+    end)
+    if ok then dialog.picker = picker else finish_file_dialog(nil, tostring(picker)) end
+end
+
+local function update_file_dialog(dt, switch_to)
+    local dialog = file_dialog
+    dialog.input.refresh()
+    if switch_to or dialog.input.keyp(1, 1) then
+        finish_file_dialog()
+    elseif dialog.error then
+        finish_file_dialog(nil, dialog.error)
+    else
+        local ok, done, path, err = pcall(dialog.picker.update, dialog.picker, dt)
+        if not ok then
+            finish_file_dialog(nil, tostring(done))
+        elseif done then
+            if path ~= nil and (type(path) ~= "string" or path:sub(1, 1) ~= "/" or path:find("[%c\\]")) then
+                path, err = nil, "The file picker returned an invalid path"
+            end
+            if err ~= nil then path, err = nil, tostring(err) end
+            finish_file_dialog(path, err)
+        end
+    end
+end
+
 local function update_system(dt)
     input.update()
     if idle.update(dt, runner:active()) then
@@ -368,7 +430,19 @@ local function update_system(dt)
             message = nil
             runner:suspend()
         end
-        runner:update(dt)
+        local request = pending_file_dialog
+        pending_file_dialog = nil
+        if file_dialog or request then
+            if file_dialog then
+                update_file_dialog(dt, switch_to)
+            elseif switch_to then
+                runner:complete_file_dialog(request.callback)
+            else
+                start_file_dialog(request)
+            end
+        else
+            runner:update(dt)
+        end
         if not runner:active() then
             local opening = pending_open ~= nil
             if pending_open then
@@ -485,6 +559,15 @@ function update(dt)
             gfx.flip(app_frame)
             gfx.target()
             gfx.spr(app_frame, 0, 0)
+        end
+        if file_dialog then
+            local frame = file_dialog.frame
+            if frame then
+                gfx.target()
+                gfx.spr(frame, 0, 0)
+            end
+            local ok, err = pcall(file_dialog.picker.draw, file_dialog.picker)
+            if not ok then file_dialog.error = tostring(err) end
         end
         if message then
             -- Rejection leaves the app alive; show its reason above the app's frame.

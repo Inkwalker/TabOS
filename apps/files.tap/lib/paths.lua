@@ -30,6 +30,31 @@ function Paths.list(path)
     return fs.list(path)
 end
 
+function Paths.entries(folder, descending)
+    local children, err = Paths.list(folder)
+    if not children then return nil, err or "Directory unavailable" end
+    local entries = {}
+    for _, child in ipairs(children) do
+        local path = Paths.join(folder, child.name)
+        local info = child.type and child or fs.stat(path)
+        local kind = info and info.type
+        local app_entry = kind == "dir" and child.name:sub(-4):lower() == ".tap"
+            and fs.stat(Paths.join(path, "app.lua"))
+        entries[#entries + 1] = {
+            path = path, name = child.name, key = Paths.key(path),
+            type = kind, order = child.name:lower(),
+            app_bundle = app_entry and app_entry.type == "file",
+        }
+    end
+    table.sort(entries, function(a, b)
+        if (a.type == "dir") ~= (b.type == "dir") then return a.type == "dir" end
+        if a.order == b.order then return a.name < b.name end
+        if descending then return a.order > b.order end
+        return a.order < b.order
+    end)
+    return entries
+end
+
 -- Resolve to names actually listed by the filesystem. In particular, do not
 -- let alternate FAT short names bypass the checks for pasting into descendants.
 function Paths.directory(path, base)
