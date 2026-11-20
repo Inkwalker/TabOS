@@ -1,0 +1,5 @@
+{
+    name = "Sprite Editor",
+    window = true,
+    file_extensions = {".png"},
+}

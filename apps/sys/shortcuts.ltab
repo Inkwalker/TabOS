@@ -1,6 +1,7 @@
 {
     "/sd/apps/files.tap",
     "/sd/apps/code.tap",
+    "/sd/apps/sprite.tap",
     "/sd/apps/clock.tap",
     "/sd/apps/bricks.tap",
     "/sd/apps/piano.tap",
