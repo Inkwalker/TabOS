@@ -32,6 +32,20 @@ nested SD card files in the root directory. The script is safe to rerun.
 
 Project is configured to run in VS Code.
 
+## Firmware crash reports
+
+TabOS reserves 256 KiB of internal flash for one firmware panic. The next time the
+SD card mounts at boot, TabOS saves `panic.txt` and `coredump.bin` under
+`/sd/crash/panic-NNNNNN/`. A missing card or failed export leaves the dump in
+flash for another boot. Until export succeeds, the flash slot keeps the first
+panic.
+
+Use `idf.py coredump-info -c path/to/coredump.bin` with the build that produced
+the crash to decode registers and call stacks. When upgrading, use a full
+`idf.py -p PORT flash` to install the updated partition table. If an existing
+local `sdkconfig` disables core dumps, select **Flash** under **Component config →
+Core dump → Data destination** in `idf.py menuconfig` before building.
+
 ## Repository
 
 For Lua completion and hover documentation in VS Code, install the recommended

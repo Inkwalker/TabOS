@@ -1,5 +1,7 @@
 #include "storage.hpp"
 
+#include "crash_report.hpp"
+
 #include "driver/sdmmc_host.h"
 #include "esp_log.h"
 #include "esp_vfs_fat.h"
@@ -91,6 +93,8 @@ void init()
         ESP_LOGW(tag, "Could not mount %s: %s", sd_path, esp_err_to_name(mount_status));
         return;
     }
+
+    export_crash_report();
 
 #if TABOS_USB_MTP
     const esp_err_t mtp_status = start_mtp();

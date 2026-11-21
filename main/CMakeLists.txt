@@ -2,10 +2,11 @@ idf_component_register(SRCS "main.cpp" "lua/lua_vm.cpp" "lua/lua_memory.cpp" "gf
                         "gfx/sprite.cpp" "gfx/commands.cpp"
                         "system/system_lua.cpp" "input/input_lua.cpp"
                         "storage/storage.cpp" "storage/fs_lua.cpp" "storage/fs_table.cpp" "storage/usb_dma.cpp"
+                        "storage/crash_report.cpp"
                         "audio/audio.cpp" "audio/audio_lua.cpp" "audio/sound.cpp"
                     INCLUDE_DIRS "."
                     PRIV_REQUIRES esp_hw_support esp_mm esp_lcd esp_timer esp_psram
-                                  esp_driver_sdmmc fatfs m5unit_keyboard)
+                                  esp_driver_sdmmc esp_partition espcoredump fatfs m5unit_keyboard)
 
 # esp_tinyusb 3.0.0 puts TinyUSB's weak MTP stubs and the real transport
 # callbacks in one archive. Force archive extraction so the strong callbacks
