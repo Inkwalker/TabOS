@@ -73,22 +73,27 @@ local function visible_span(size, extent, scale, pan)
     return first, last - first + 1, offset + first * scale
 end
 
+local function edit_image(image, paint)
+    gfx.target(image.width, image.height)
+    gfx.spr(image, 0, 0)
+    paint(image)
+    gfx.flip(image)
+end
+
 local function commit_edits(canvas)
     local pending = canvas.pending_edits
     if not next(pending) then return end
 
-    local image = canvas.image
-    local width = image.width
-    gfx.target(width, image.height)
-    gfx.spr(image, 0, 0)
-    for index, color in pairs(pending) do
-        gfx.pset(index % width, index // width, color)
-    end
-    gfx.flip(image)
+    edit_image(canvas.image, function(image)
+        local width = image.width
+        for index, color in pairs(pending) do
+            gfx.pset(index % width, index // width, color)
+        end
+    end)
     canvas.pending_edits = {}
 end
 
-function SpriteCanvas.render(canvas)
+local function render(canvas, paint)
     local scale = canvas.zoom
     local image = canvas.image
     local sx, sw, dx = visible_span(image.width, canvas.width, scale, canvas.pan_x)
@@ -97,6 +102,7 @@ function SpriteCanvas.render(canvas)
     -- Capture the sprite pass before restoring the shared window canvas.
     local window_width, window_height = gfx.width, gfx.height
     commit_edits(canvas)
+    if paint then edit_image(image, paint) end
     gfx.target(canvas.width, canvas.height)
     gfx.cls(canvas.background)
     if sw * scale <= 32767 and sh * scale <= 32767 then
@@ -119,7 +125,22 @@ function SpriteCanvas.render(canvas)
     gfx.target(window_width, window_height)
 end
 
-function SpriteCanvas:set_sprite(image, zoom, pan_x, pan_y, edits)
+function SpriteCanvas:render()
+    render(self)
+end
+
+function SpriteCanvas:flush_edits()
+    if not next(self.pending_edits) then return false end
+    self:render()
+    return true
+end
+
+-- The callback draws into the sprite-sized target and can read its original pixels from image.
+function SpriteCanvas:edit_pixels(paint)
+    render(self, paint)
+end
+
+function SpriteCanvas:set_sprite(image, zoom, pan_x, pan_y)
     if image.width * image.height > max_target_pixels then
         return nil, "PNG exceeds the 65,536-pixel canvas limit"
     end
@@ -130,13 +151,7 @@ function SpriteCanvas:set_sprite(image, zoom, pan_x, pan_y, edits)
     end
     self.image = image
     self.zoom = zoom or 1
-    self.edits = {}
     self.pending_edits = {}
-    if edits then
-        for y, row in pairs(edits) do
-            for x, color in pairs(row) do self:paint_pixel(x, y, color) end
-        end
-    end
     set_pan(self, pan_x or 0, pan_y or 0)
     self:render()
     return true
@@ -144,15 +159,11 @@ end
 
 function SpriteCanvas:paint_pixel(x, y, color)
     if x < 0 or x >= self.image.width or y < 0 or y >= self.image.height then return false end
-    local row = self.edits[y]
-    if row and row[x] == color then return false end
-    if not row then
-        row = {}
-        self.edits[y] = row
-    end
-    row[x] = color
-    self.pending_edits[y * self.image.width + x] = color
-    return true
+    local index = y * self.image.width + x
+    local before = self.pending_edits[index] or self.image:pget(x, y)
+    if before == color then return false end
+    self.pending_edits[index] = color
+    return true, before, index
 end
 
 function SpriteCanvas:zoom_by(step)

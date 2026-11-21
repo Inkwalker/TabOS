@@ -19,10 +19,15 @@ local function discard_temp(path, message)
     return nil, message
 end
 
-function PngFile.save(sprite, path)
+local function same_file(current, previous)
+    return current.type == "file" and current.size == previous.size and current.mtime == previous.mtime
+end
+
+function PngFile.save(sprite, path, source)
     local original, err = fs.stat(path)
     if not original then return nil, err end
     if original.type ~= "file" then return nil, "Save target is not a file" end
+    if source and not same_file(original, source) then return nil, "Save target changed since opening" end
 
     local directory = path:match("^(.*)/[^/]+$")
     local temp, backup, handle
@@ -42,7 +47,7 @@ function PngFile.save(sprite, path)
     local current
     current, err = fs.stat(path)
     if not current then return discard_temp(temp, err) end
-    if current.type ~= "file" or current.size ~= original.size or current.mtime ~= original.mtime then
+    if not same_file(current, original) then
         return discard_temp(temp, "Save target changed during save")
     end
 

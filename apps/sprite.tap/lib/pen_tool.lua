@@ -1,14 +1,16 @@
-local PenTool = {icon_path = "spr/pen.png"}
+local PenTool = {icon_path = "spr/pen.png", history_id = 1, history_version = 1}
 PenTool.__index = PenTool
 
 local arrows = {left = {-1, 0}, right = {1, 0}, up = {0, -1}, down = {0, 1}}
+local pixel_record = "<I2I2"
+local pixel_record_size = string.packsize(pixel_record)
 
 function PenTool.new(color, cursor_color)
     return setmetatable({color = color, cursor_color = cursor_color}, PenTool)
 end
 
 function PenTool:reset(canvas, x, y)
-    self:end_drag()
+    self.stroke, self.stroke_x, self.stroke_y = nil, nil, nil
     if x ~= nil and y ~= nil then
         self.x, self.y = canvas:clamp_pixel(x, y)
     else
@@ -31,13 +33,18 @@ function PenTool:draw(canvas)
     gfx.rect(left, top, right - left, bottom - top, self.cursor_color)
 end
 
-local function paint_line(canvas, x, y, end_x, end_y, color)
+local function paint_line(canvas, x, y, end_x, end_y, color, stroke)
     local dx, dy = math.abs(end_x - x), -math.abs(end_y - y)
     local step_x, step_y = x < end_x and 1 or -1, y < end_y and 1 or -1
     local error = dx + dy
     local changed = false
     while true do
-        if canvas:paint_pixel(x, y, color) then changed = true end
+        local painted, before, index = canvas:paint_pixel(x, y, color)
+        if painted then
+            local mask = (stroke[index] or 0) ~ before ~ color
+            stroke[index] = mask ~= 0 and mask or nil
+            changed = true
+        end
         if x == end_x and y == end_y then return changed end
         local twice_error = 2 * error
         if twice_error >= dy then
@@ -52,11 +59,11 @@ end
 local function paint_touch(pen, canvas, x, y)
     local px, py = canvas:pixel_at(x, y)
     if not px then
-        pen:end_drag()
+        pen.stroke_x, pen.stroke_y = nil, nil
         return false
     end
     local moved = pen.x ~= px or pen.y ~= py
-    local changed = paint_line(canvas, pen.stroke_x or px, pen.stroke_y or py, px, py, pen.color)
+    local changed = paint_line(canvas, pen.stroke_x or px, pen.stroke_y or py, px, py, pen.color, pen.stroke)
     pen.x, pen.y = px, py
     pen.stroke_x, pen.stroke_y = px, py
     if changed then canvas:render() end
@@ -64,6 +71,7 @@ local function paint_touch(pen, canvas, x, y)
 end
 
 function PenTool:begin_drag(canvas, x, y)
+    self.stroke = {}
     return paint_touch(self, canvas, x, y)
 end
 
@@ -72,14 +80,27 @@ function PenTool:drag(canvas, motion)
 end
 
 function PenTool:end_drag()
-    self.stroke_x, self.stroke_y = nil, nil
+    local stroke = self.stroke
+    self.stroke, self.stroke_x, self.stroke_y = nil, nil, nil
+    if not stroke or not next(stroke) then return end
+    local chunks, parts = {}, {}
+    for index, mask in pairs(stroke) do
+        parts[#parts + 1] = string.pack(pixel_record, index, mask)
+        if #parts == 256 then
+            chunks[#chunks + 1] = table.concat(parts)
+            parts = {}
+        end
+    end
+    chunks[#chunks + 1] = table.concat(parts)
+    return table.concat(chunks)
 end
 
 function PenTool:key_pressed(canvas, key)
     if key == "`" then
-        if not canvas:paint_pixel(self.x, self.y, self.color) then return false end
+        local changed, before, index = canvas:paint_pixel(self.x, self.y, self.color)
+        if not changed then return false end
         canvas:render()
-        return true
+        return true, string.pack(pixel_record, index, before ~ self.color)
     end
     local delta = arrows[key]
     if not delta then return false end
@@ -88,6 +109,29 @@ function PenTool:key_pressed(canvas, key)
     self.x, self.y = x, y
     canvas:reveal_pixel(x, y)
     return true
+end
+
+function PenTool.validate_history(version, payload, pixels)
+    if version ~= PenTool.history_version or #payload % pixel_record_size ~= 0
+        or #payload > pixels * pixel_record_size then
+        return false
+    end
+    for offset = 1, #payload, pixel_record_size do
+        local index, mask = string.unpack(pixel_record, payload, offset)
+        if index >= pixels or mask == 0 then return false end
+    end
+    return true
+end
+
+function PenTool.apply_history(canvas, _, payload)
+    canvas:edit_pixels(function(image)
+        local width = image.width
+        for offset = 1, #payload, pixel_record_size do
+            local index, mask = string.unpack(pixel_record, payload, offset)
+            local x, y = index % width, index // width
+            gfx.pset(x, y, image:pget(x, y) ~ mask)
+        end
+    end)
 end
 
 return PenTool

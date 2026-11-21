@@ -22,6 +22,14 @@ function KeyboardManager:update()
             self.actions.save()
             return true
         end
+        if input.keyp(5, 3) then
+            self.actions.undo()
+            return true
+        end
+        if input.keyp(3, 7) then
+            self.actions.redo()
+            return true
+        end
     end
 
     local handled = false

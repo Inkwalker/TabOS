@@ -18,3 +18,5 @@ target_compile_options(${tabos_lua_lib} PRIVATE -O2)
 if(CONFIG_LUA_USE_PSRAM)
     include(cmake/lua_sram.cmake)
 endif()
+
+include(cmake/m5gfx_png.cmake)

@@ -1,5 +1,7 @@
 local launch_path = ...
 local Button = require("button")
+local Checkpoint = require("checkpoint")
+local History = require("history")
 local KeyboardManager = require("keyboard_manager")
 local Label = require("label")
 local PanTool = require("pan_tool")
@@ -14,6 +16,8 @@ local panel_width = 20
 local workspace_width, workspace_height = width - panel_width, height - toolbar_height - status_height
 local zoom_out_x, zoom_in_x, zoom_button_width = width - 92, width - 28, 24
 local theme = assert(fs.read_table(os.path("theme.ltab")))
+local checkpoint_root = os.path(".recovery")
+local history_tools = {[PenTool.history_id] = PenTool}
 local colors = {}
 for _, name in ipairs({"workspace", "panel", "button", "text", "muted", "accent", "error", "active_color"}) do
     local rgb = assert(theme[name], "Missing theme color " .. name)
@@ -21,8 +25,11 @@ for _, name in ipairs({"workspace", "panel", "button", "text", "muted", "accent"
 end
 
 local open_button, save_button, zoom_out_button, zoom_in_button
+local document
 local canvas = SpriteCanvas.new(0, toolbar_height, workspace_width, workspace_height, colors.workspace)
-local tools = ToolManager.new(canvas)
+local tools = ToolManager.new(canvas, function(tool, payload)
+    document.history:record(tool, payload)
+end)
 local pen = PenTool.new(colors.active_color, colors.accent)
 tools:set_active(PanTool)
 local tool_panel = ToolPanel.new({x = workspace_width, y = toolbar_height, width = panel_width, height = workspace_height},
@@ -35,7 +42,6 @@ zoom_label.visible = false
 local hint_label = Label.new(0, toolbar_height + (workspace_height - 8) // 2, workspace_width,
     "Open a PNG to get started", colors.muted, "center")
 local status_label = Label.new(6, height - 12, width - 10, "Ctrl+O", colors.muted)
-local document
 local touch_held = false
 
 local function update_zoom_label()
@@ -62,19 +68,36 @@ local function close_document()
 end
 
 local function open_image(path, view)
-    local image, err = gfx.load_sprite(path)
-    if not image then return nil, err end
-
     view = view or {}
+    local image, history, source, err
+    if view.checkpoint then
+        image, history = Checkpoint.read(checkpoint_root, view.checkpoint, history_tools)
+        if not image then return nil, history end
+        source = view.source
+    else
+        source = fs.stat(path)
+        image, err = gfx.load_sprite(path)
+        if not image then return nil, err end
+        history = History.new(history_tools)
+    end
+
     local ready
-    ready, err = canvas:set_sprite(image, view.zoom, view.pan_x, view.pan_y, view.edits)
+    ready, err = canvas:set_sprite(image, view.zoom, view.pan_x, view.pan_y)
     if not ready then
         image:close()
         return nil, err
     end
 
+    -- Older suspended sessions carry unsaved pixels in their state table.
+    if view.edits and not view.checkpoint then
+        for y, row in pairs(view.edits) do
+            for x, color in pairs(row) do canvas:paint_pixel(x, y, color) end
+        end
+        if canvas:flush_edits() then history:mark_dirty() end
+    end
+
     close_document()
-    document = {path = path, image = image}
+    document = {path = path, source = source, image = image, history = history}
     save_button.enabled = true
     pen:reset(canvas, view.cursor_x, view.cursor_y)
     title_label:set_text(path:match("[^/]+$") or "Sprite Editor")
@@ -129,18 +152,31 @@ end
 
 local function request_save()
     if not document then return end
-    if not next(canvas.edits) then
+    tools:cancel_drag()
+    local history = document.history
+    if not history:is_dirty() then
         update_status("No changes to save", colors.muted)
     else
-        local ok, message = PngFile.save(document.image, document.path)
+        canvas:flush_edits()
+        local ok, message = PngFile.save(document.image, document.path, document.source)
         if ok then
-            canvas.edits = {}
+            history:mark_saved()
+            document.source = fs.stat(document.path)
             update_status(message or "Saved", colors.accent)
         else
             update_status(message or "Save failed")
         end
     end
     draw()
+end
+
+local function step_history(undo)
+    if not document then return end
+    tools:cancel_drag()
+    if document.history:step(canvas, undo) then
+        update_status()
+        draw()
+    end
 end
 
 local function change_zoom(step)
@@ -152,6 +188,7 @@ local function change_zoom(step)
 end
 
 local function tool_key(key)
+    if key == "`" then tools:cancel_drag() end
     if document and tools:key_pressed(key) then draw() end
 end
 
@@ -167,22 +204,33 @@ save_button.enabled = false
 zoom_out_button = Button.new(zoom_out_x, 3, zoom_button_width, 18, "-", button_colors, function() change_zoom(-1) end)
 zoom_in_button = Button.new(zoom_in_x, 3, zoom_button_width, 18, "+", button_colors, function() change_zoom(1) end)
 local keyboard = KeyboardManager.new({close = request_close, open = request_open, save = request_save,
+    undo = function() step_history(true) end, redo = function() step_history(false) end,
     zoom = change_zoom, tool_key = tool_key})
 
 function init(saved, explicit_args)
     local path = explicit_args and os.path(launch_path) or saved and saved.path
     local message
-    local view = not explicit_args and saved
+    local view
+    if path and saved and saved.path and fs.fat_name_key(path) == fs.fat_name_key(saved.path) then
+        view = saved
+    end
     if path then
         local opened
         opened, message = open_image(path, view)
-        if not opened and saved and saved.path and saved.path ~= path then
-            if open_image(saved.path, saved) then view = saved end
+        if not opened and not view and saved and saved.path then
+            view = saved
+            local detail
+            opened, detail = open_image(saved.path, saved)
+            if not opened and saved.checkpoint then message = detail end
+        end
+        if not opened and view and view.checkpoint then
+            error("Cannot resume Sprite Editor: " .. (message or "checkpoint load failed"), 0)
         end
     end
     if document and view and view.tool == "pen" then tools:set_active(pen) end
     update_status(message)
     draw()
+    Checkpoint.clear(checkpoint_root)
 end
 
 function update()
@@ -204,8 +252,22 @@ end
 
 function save_state()
     if not document then return end
+    tools:cancel_drag()
+    canvas:flush_edits()
+    local checkpoint
+    if document.history:needs_checkpoint() then
+        local err
+        checkpoint, err = Checkpoint.write(checkpoint_root, document.image, document.history)
+        if not checkpoint then
+            local message = "Cannot suspend Sprite Editor: " .. err
+            update_status(message)
+            draw()
+            return nil, message
+        end
+    end
     return {path = document.path, zoom = canvas.zoom, pan_x = canvas.pan_x, pan_y = canvas.pan_y,
-        edits = canvas.edits, cursor_x = pen.x, cursor_y = pen.y, tool = tools.active == pen and "pen" or "pan"}
+        checkpoint = checkpoint, source = checkpoint and document.source,
+        cursor_x = pen.x, cursor_y = pen.y, tool = tools.active == pen and "pen" or "pan"}
 end
 
 function deinit()
