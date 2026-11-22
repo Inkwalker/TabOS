@@ -2,6 +2,7 @@ local launch_path = ...
 local Button = require("button")
 local Checkpoint = require("checkpoint")
 local ColorPicker = require("color_picker")
+local FileMenu = require("file_menu")
 local History = require("history")
 local KeyboardManager = require("keyboard_manager")
 local Label = require("label")
@@ -13,10 +14,11 @@ local SpriteCanvas = require("sprite_canvas")
 local ToolManager = require("tool_manager")
 local ToolPanel = require("tool_panel")
 local width, height = gfx.width, gfx.height
-local toolbar_height, status_height = 24, 16
+local toolbar_height, status_height = 24, 9
+local status_y = height - status_height
 local panel_width = 20
 local picker_x = width - ColorPicker.width
-local workspace_width, workspace_height = picker_x - panel_width, height - toolbar_height - status_height
+local workspace_width, workspace_height = picker_x - panel_width, status_y - toolbar_height
 local zoom_out_x, zoom_in_x, zoom_button_width = width - 92, width - 28, 24
 local theme = assert(fs.read_table(os.path("theme.ltab")))
 local palette_path = os.path("palettes/default.png")
@@ -28,7 +30,7 @@ for _, name in ipairs({"workspace", "panel", "button", "text", "muted", "accent"
     colors[name] = gfx.rgb(rgb[1], rgb[2], rgb[3])
 end
 
-local open_button, save_button, zoom_out_button, zoom_in_button
+local menu, zoom_out_button, zoom_in_button
 local document, color_picker
 local canvas = SpriteCanvas.new(panel_width, toolbar_height, workspace_width, workspace_height, colors.workspace)
 local tools = ToolManager.new(canvas, function(tool, payload)
@@ -42,14 +44,14 @@ end, colors.accent)
 tools:set_active(PanTool)
 local tool_panel = ToolPanel.new({x = 0, y = toolbar_height, width = panel_width, height = workspace_height},
     colors, tools, {PanTool, pen, pipette})
-local title_x = 104
+local title_x = 32
 local title_label = Label.new(title_x, 8, zoom_out_x - title_x - 4, "Sprite Editor", colors.text)
 local zoom_x = zoom_out_x + zoom_button_width
 local zoom_label = Label.new(zoom_x, 8, zoom_in_x - zoom_x, "", colors.text, "center")
 zoom_label.visible = false
 local hint_label = Label.new(canvas.x, toolbar_height + (workspace_height - 8) // 2, workspace_width,
     "Open a PNG to get started", colors.muted, "center")
-local status_label = Label.new(6, height - 12, width - 10, "Ctrl+O", colors.muted)
+local status_label = Label.new(6, status_y + (status_height - 8) // 2, width - 10, "Ctrl+O", colors.muted)
 local touch_held = false
 
 local function update_zoom_label()
@@ -106,7 +108,6 @@ local function open_image(path, view)
 
     close_document()
     document = {path = path, source = source, image = image, history = history}
-    save_button.enabled = true
     pen:reset(canvas, view.cursor_x, view.cursor_y)
     pipette.cursor:reset(canvas, view.pipette_x, view.pipette_y)
     title_label:set_text(path:match("[^/]+$") or "Sprite Editor")
@@ -124,8 +125,6 @@ local function draw()
     color_picker:draw()
 
     gfx.rectfill(0, 0, width, toolbar_height, colors.panel)
-    open_button:draw()
-    save_button:draw()
     title_label:draw()
     if document then
         zoom_out_button:draw()
@@ -133,51 +132,87 @@ local function draw()
     end
     zoom_label:draw()
 
-    gfx.rectfill(0, height - status_height, width, status_height, colors.panel)
+    gfx.rectfill(0, status_y, width, status_height, colors.panel)
     status_label:draw()
+
+    menu:draw()
 end
 
-local function request_open()
+local function request_file(options, on_selected)
     tools:cancel_drag()
     if not os.file_dialog then
         update_status("File picker unavailable")
         draw()
         return
     end
-    local directory = document and document.path:match("^(.+)/[^/]+$") or "/sd"
-    local queued, err = os.file_dialog({mode = "open", directory = directory}, function(path, detail)
-        if not path and not detail then return end
+    options.directory = document and document.path:match("^(.+)/[^/]+$") or "/sd"
+    local queued, err = os.file_dialog(options, function(path, detail)
         if path then
-            local _
-            _, detail = open_image(path)
+            on_selected(path)
+        elseif detail then
+            update_status(detail)
         end
-        update_status(detail)
         draw()
     end)
-    if not queued then
-        update_status(err)
-        draw()
+    if not queued then update_status(err) end
+    draw()
+end
+
+local function request_open()
+    request_file({mode = "open"}, function(path)
+        local _, detail = open_image(path)
+        update_status(detail)
+    end)
+end
+
+local function save_image(path, source, create)
+    canvas:flush_edits()
+    local ok, message = PngFile.save(document.image, path, source, create)
+    if not ok then
+        update_status(message or "Save failed")
+        return
     end
+
+    document.path = path
+    document.source = fs.stat(path)
+    document.history:mark_saved()
+    title_label:set_text(path:match("[^/]+$") or "Sprite Editor")
+    update_status(message or "Saved", colors.accent)
 end
 
 local function request_save()
     if not document then return end
     tools:cancel_drag()
-    local history = document.history
-    if not history:is_dirty() then
+    if not document.history:is_dirty() then
         update_status("No changes to save", colors.muted)
     else
-        canvas:flush_edits()
-        local ok, message = PngFile.save(document.image, document.path, document.source)
-        if ok then
-            history:mark_saved()
-            document.source = fs.stat(document.path)
-            update_status(message or "Saved", colors.accent)
-        else
-            update_status(message or "Save failed")
-        end
+        save_image(document.path, document.source)
     end
     draw()
+end
+
+local function request_save_as()
+    if not document then return end
+    local name = document.path:match("[^/]+$")
+    request_file({mode = "save", root = "/sd", name = name}, function(path)
+        if fs.fat_name_key(path) == fs.fat_name_key(document.path) then
+            save_image(path, document.source)
+            return
+        end
+
+        local source, err, code = fs.stat(path)
+        if source and source.type == "file" then
+            menu:confirm_replace(path:match("[^/]+$"), function()
+                save_image(path, source)
+            end)
+        elseif source then
+            update_status("Save target is not a file")
+        elseif code == 2 then
+            save_image(path, nil, true)
+        else
+            update_status(err or "Cannot check save destination")
+        end
+    end)
 end
 
 local function step_history(undo)
@@ -209,9 +244,8 @@ local function request_close()
 end
 
 local button_colors = {background = colors.button, text = colors.accent, disabled_text = colors.muted}
-open_button = Button.new(4, 3, 44, 18, "Open", button_colors, request_open)
-save_button = Button.new(52, 3, 44, 18, "Save", button_colors, request_save)
-save_button.enabled = false
+menu = FileMenu.new(toolbar_height, colors,
+    {open = request_open, save = request_save, save_as = request_save_as, exit = request_close}, draw)
 zoom_out_button = Button.new(zoom_out_x, 3, zoom_button_width, 18, "-", button_colors, function() change_zoom(-1) end)
 zoom_in_button = Button.new(zoom_in_x, 3, zoom_button_width, 18, "+", button_colors, function() change_zoom(1) end)
 local keyboard = KeyboardManager.new({close = request_close, open = request_open, save = request_save,
@@ -254,7 +288,13 @@ function update()
     local touch = contacts[1]
     local press = not touch_held and touch or nil
     touch_held = touch ~= nil
+    if menu:update_popup(press) then return end
     if keyboard:update() then press = nil end
+    if menu:press(press, document ~= nil) then
+        tools:cancel_drag()
+        draw()
+        return
+    end
 
     local color = color_picker:update_touch(touch, press)
     if color then
@@ -262,7 +302,6 @@ function update()
         draw()
         return
     end
-    if open_button:press(press) or save_button:press(press) then return end
     if tool_panel:press(press) then
         draw()
         return
@@ -298,6 +337,7 @@ end
 
 function deinit()
     tools:cancel_drag()
+    menu:close()
     tool_panel:close()
     if color_picker then color_picker:close() end
     canvas:close()
