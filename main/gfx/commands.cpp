@@ -60,6 +60,9 @@ void draw_commands(void*)
                 target.drawLine(a[0], a[1], a[2], a[3], command.color);
             }
             break;
+        case DrawOp::fill_triangle:
+            fill_triangle(a[0], a[1], a[2], a[3], a[4], a[5], command.color);
+            break;
         case DrawOp::sprite:
             draw_sprite(*command.sprite, a[0], a[1], command.transparent, command.flip_x, command.flip_y);
             break;
@@ -69,7 +72,10 @@ void draw_commands(void*)
             break;
         case DrawOp::textured_line:
             draw_textured_line(*command.sprite, a[0], a[1], a[2], a[3],
-                               command.payload.source[0], command.payload.source[1], command.payload.source[2], command.payload.source[3]);
+                               command.payload.uv[0], command.payload.uv[1], command.payload.uv[2], command.payload.uv[3]);
+            break;
+        case DrawOp::textured_triangle:
+            draw_textured_triangle(*command.sprite, a, command.payload.uv);
             break;
         case DrawOp::text:
             target.setTextColor(command.color);

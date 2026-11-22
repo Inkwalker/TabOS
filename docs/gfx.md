@@ -27,7 +27,9 @@ The Lua shell calls `gfx.flip()` at the end of each update, after app and shell 
 | `gfx.rect(x, y, width, height [, color])` | Draw a rectangle outline from the top-left corner. |
 | `gfx.rectfill(x, y, width, height [, color])` | Draw a filled rectangle from the top-left corner. |
 | `gfx.line(x1, y1, x2, y2 [, color])` | Draw a line including both endpoints. |
+| `gfx.tri(x1, y1, x2, y2, x3, y3 [, color])` | **Experimental.** Draw a triangle filled with a single color. Vertices can be in either winding order. Collinear or coincident vertices draw nothing. |
 | `gfx.tline(spr, x0, y0, x1, y1, sx, sy, sdx, sdy)` | Draw a textured line including both endpoints, starting with sprite position `(sx, sy)` and advancing it by `(sdx, sdy)` per line pixel. |
+| `gfx.ttri(spr, x1, y1, x2, y2, x3, y3, u1, v1, u2, v2, u3, v3)` | **Experimental.** Draw a textured triangle. Each `(u, v)` pair maps to the corresponding `(x, y)` vertex. |
 | `gfx.print(x, y, text [, color])` | Draw a string starting at `(x, y)` with automatic wrapping disabled. |
 | `gfx.load_sprite(path)` | Load a PNG at its native dimensions. Return a sprite object, or `nil, error` on failure. |
 | `gfx.create_sprite(width, height)` | Allocate a black RGB565 sprite in PSRAM. Dimensions must be in 1–32767. Return a sprite object, or `nil, error` on allocation failure. |
@@ -44,7 +46,11 @@ Sprite and `sspr` dimensions must be in 1–32767. PNG transparency is flattened
 
 Sprite drawing respects canvas bounds and the active clip rectangle without changing the source. In `sspr`, samples outside the sprite leave destination pixels unchanged. Use `nil` to skip optional arguments before later ones.
 
-In `tline`, source positions and steps are required finite numbers and may be fractional. Source positions wrap independently at the sprite width and height, including negative positions and steps; each sample uses `floor` of the wrapped position. Sampling starts at `(x0, y0)` and advances toward `(x1, y1)`, even across clipped pixels. A zero-length line draws one sample. All sampled colors are drawn.
+In `tline`, source positions and steps are required finite numbers and may be fractional. Source positions wrap independently at the sprite width and height, including negative positions and steps. Sampling uses single-precision arithmetic and takes the `floor` of each wrapped position. Sampling starts at `(x0, y0)` and advances toward `(x1, y1)`, even across clipped pixels. A zero-length line draws one sample. All sampled colors are drawn.
+
+In `ttri`, UVs are finite numbers in sprite pixels measured from the top-left corner. UVs are interpolated affinely across the triangle, wrapped independently at the sprite width and height (including negative values), and rounded down to select a sprite pixel. All sampled RGB565 colors are drawn. The active clip rectangle limits drawing without changing UV interpolation. Collinear or coincident vertices draw nothing.
+
+`tri` and `ttri` use single-precision interpolation. Rounding can affect pixels near triangle edges and, in `ttri`, near texel boundaries.
 
 Sprites are released by garbage collection, VM shutdown, `sprite:close()`, or a Lua `<close>` local. Using a closed sprite raises an error, except for repeated `close()` calls.
 

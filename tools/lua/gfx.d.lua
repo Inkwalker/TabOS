@@ -157,6 +157,17 @@ function gfx.rectfill(x, y, width, height, color) end
 ---@param color? integer RGB565 color; defaults to the current drawing color.
 function gfx.line(x1, y1, x2, y2, color) end
 
+---Experimental. Draw a triangle filled with a single color.
+---Collinear or coincident vertices draw nothing.
+---@param x1 integer Coordinate from -32768 to 32767.
+---@param y1 integer Coordinate from -32768 to 32767.
+---@param x2 integer Coordinate from -32768 to 32767.
+---@param y2 integer Coordinate from -32768 to 32767.
+---@param x3 integer Coordinate from -32768 to 32767.
+---@param y3 integer Coordinate from -32768 to 32767.
+---@param color? integer RGB565 color; defaults to the current drawing color.
+function gfx.tri(x1, y1, x2, y2, x3, y3, color) end
+
 ---Draw a textured line including both endpoints, from (x0, y0) toward (x1, y1).
 ---Sample floor of the source position, wrapping both axes at sprite bounds.
 ---Advance the source after each line pixel, including clipped pixels.
@@ -171,6 +182,24 @@ function gfx.line(x1, y1, x2, y2, color) end
 ---@param sdx number Finite source X step per line pixel; may be negative or fractional.
 ---@param sdy number Finite source Y step per line pixel; may be negative or fractional.
 function gfx.tline(spr, x0, y0, x1, y1, sx, sy, sdx, sdy) end
+
+---Experimental. Draw a textured triangle with affine UV interpolation.
+---UVs are measured in sprite pixels from the top-left corner. Interpolated UVs wrap at sprite bounds and are then rounded down.
+---Triangles with zero area leave the canvas unchanged.
+---@param spr gfx.Sprite
+---@param x1 integer Coordinate from -32768 to 32767.
+---@param y1 integer Coordinate from -32768 to 32767.
+---@param x2 integer Coordinate from -32768 to 32767.
+---@param y2 integer Coordinate from -32768 to 32767.
+---@param x3 integer Coordinate from -32768 to 32767.
+---@param y3 integer Coordinate from -32768 to 32767.
+---@param u1 number Finite sprite X for the first vertex.
+---@param v1 number Finite sprite Y for the first vertex.
+---@param u2 number Finite sprite X for the second vertex.
+---@param v2 number Finite sprite Y for the second vertex.
+---@param u3 number Finite sprite X for the third vertex.
+---@param v3 number Finite sprite Y for the third vertex.
+function gfx.ttri(spr, x1, y1, x2, y2, x3, y3, u1, v1, u2, v2, u3, v3) end
 
 ---Draw text starting at (x, y), with automatic wrapping disabled.
 ---@param x integer Coordinate from -32768 to 32767.

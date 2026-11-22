@@ -38,6 +38,7 @@ esp_err_t save_canvas(lgfx::PPA_Sprite& sprite);
 // Renderer-only blocking operations with clipping and software fallback. Drawing pixels
 // are ready for reads, subsequent software drawing, and flip() on return.
 void fill_rect(int x, int y, int width, int height, uint16_t color);
+void fill_triangle(int x0, int y0, int x1, int y1, int x2, int y2, uint16_t color);
 void draw_sprite(lgfx::PPA_Sprite& sprite, int x, int y, int32_t transparent = -1,
                  bool flip_x = false, bool flip_y = false);
 
@@ -50,7 +51,9 @@ void draw_sprite_region(lgfx::PPA_Sprite& sprite, int sx, int sy, int sw, int sh
 // Inclusive textured line, sampled from the first endpoint toward the second.
 // Finite source coordinates/steps may be fractional and wrap at sprite bounds.
 void draw_textured_line(lgfx::PPA_Sprite& sprite, int x0, int y0, int x1, int y1,
-                        double sx, double sy, double sdx, double sdy);
+                        float sx, float sy, float sdx, float sdy);
+// Three screen (x, y) pairs and the corresponding sprite (u, v) pairs.
+void draw_textured_triangle(lgfx::PPA_Sprite& sprite, const int xy[6], const float uv[6]);
 
 // Last sampled rate of confirmed framebuffer swaps, or zero before the first sample.
 float presenter_fps();

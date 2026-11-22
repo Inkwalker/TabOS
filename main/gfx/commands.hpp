@@ -6,8 +6,8 @@ namespace gfx {
 
 enum class DrawOp {
     barrier, flip, target, save, pget, clip, reset_clip, pixel, circle, fill_circle,
-    ellipse, fill_ellipse, rect, fill_rect, line, sprite, sprite_region,
-    textured_line, text, text_continue,
+    ellipse, fill_ellipse, rect, fill_rect, line, fill_triangle, sprite, sprite_region,
+    textured_line, textured_triangle, text, text_continue,
 };
 
 struct CommandCompletion;
@@ -24,7 +24,7 @@ struct DrawCommand {
     lgfx::PPA_Sprite* sprite = nullptr;
     CommandCompletion* completion = nullptr;
     union Payload {
-        double source[4]{};
+        float uv[6]{};
         char text[64];
     } payload{};
 };

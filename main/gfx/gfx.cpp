@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <new>
 #include <utility>
@@ -637,6 +638,181 @@ void fill_rect(int x, int y, int width, int height, uint16_t color)
     drawing_canvas.fillRect(x, y, width, height, color);
 }
 
+namespace {
+
+struct TrianglePoint { int x, y; };
+
+int64_t triangle_edge(TrianglePoint a, TrianglePoint b, TrianglePoint p)
+{
+    return int64_t(b.x - a.x) * (p.y - a.y) - int64_t(b.y - a.y) * (p.x - a.x);
+}
+
+struct TriangleScanEdge {
+    TrianglePoint start, end;
+    float step;
+
+    TriangleScanEdge(TrianglePoint a, TrianglePoint b)
+        : start(a), end(b), step(a.y == b.y ? 0.0f : float(b.x - a.x) / float(b.y - a.y)) {}
+
+    int x_at(int y, bool round_up) const
+    {
+        if (y == end.y) return end.x;
+        const float x = float(start.x) + float(y - start.y) * step;
+        const int whole = static_cast<int>(x);
+        return whole + (round_up ? (x > float(whole)) : -(x < float(whole)));
+    }
+};
+
+template <typename DrawSpan>
+void draw_triangle_spans(TrianglePoint a, TrianglePoint b, TrianglePoint c, DrawSpan draw_span)
+{
+    TrianglePoint vertices[] = {a, b, c};
+    std::sort(vertices, vertices + 3, [](TrianglePoint a, TrianglePoint b) { return a.y < b.y; });
+    const auto [top, middle, bottom] = vertices;
+
+    const int64_t area = triangle_edge(top, middle, bottom);
+    if (area == 0) return;
+
+    int32_t clip_x, clip_y, clip_width, clip_height;
+    drawing_canvas.getClipRect(&clip_x, &clip_y, &clip_width, &clip_height);
+    const int first_y = std::max(top.y, int(clip_y));
+    const int end_y = std::min(bottom.y + 1, int(clip_y + clip_height));
+    if (first_y >= end_y || clip_width == 0) return;
+
+    const TriangleScanEdge long_side(top, bottom);
+    const TriangleScanEdge upper_side(top, middle);
+    const TriangleScanEdge lower_side(middle, bottom);
+    const bool middle_on_right = area > 0;
+    for (int y = first_y; y < end_y; ++y) {
+        const auto& short_side = (y < middle.y || middle.y == bottom.y) ? upper_side : lower_side;
+        const int long_edge = long_side.x_at(y, middle_on_right);
+        const int short_edge = short_side.x_at(y, !middle_on_right);
+        const int span_left = middle_on_right ? long_edge : short_edge;
+        const int left = std::max(int(clip_x), span_left);
+        const int right = std::min(int(clip_x + clip_width - 1), middle_on_right ? short_edge : long_edge);
+        if (left <= right) draw_span(y, span_left, left, right);
+    }
+}
+
+float wrap_sprite_coordinate(float value, float period)
+{
+    if (value >= 0 && value < period) return value;
+    float result = std::fmod(value, period);
+    if (result < 0) result += period;
+    return result < period ? result : 0.0f;
+}
+
+float wrap_sprite_step(float step, float period)
+{
+    if (std::abs(step) >= period) step = std::fmod(step, period);
+    // Keep small negative steps negative to preserve their precision.
+    const float half_period = period * 0.5f;
+    if (step > half_period) step -= period;
+    else if (step < -half_period) step += period;
+    return step;
+}
+
+float advance_sprite_coordinate(float value, float step, float period)
+{
+    value += step;
+    if (value < 0.0f) value += period;
+    if (value >= period) value -= period;
+    return value;
+}
+
+struct TriangleTextureAxis {
+    float a, b, c;
+    float period;
+    float scaled_period;
+    float scale = 1.0f;
+    float step;
+
+    TriangleTextureAxis(float a, float b, float c, int size, float step_b, float step_c, float area)
+        : a(a), b(b), c(c), period(size)
+    {
+        // Leave room for differences and edge weights even at the limits of Lua's float range.
+        constexpr float large_scale = 0x1p36f;
+        if (std::max({std::abs(a), std::abs(b), std::abs(c)}) > std::numeric_limits<float>::max() / large_scale) {
+            this->a /= large_scale;
+            this->b /= large_scale;
+            this->c /= large_scale;
+            scale = large_scale;
+        }
+        scaled_period = period / scale;
+        const float gradient = ((this->b - this->a) * step_b + (this->c - this->a) * step_c) / area;
+        step = wrap_sprite_step(gradient, scaled_period) * scale;
+    }
+
+    float start(float weight_a, float weight_b, float weight_c, float area) const
+    {
+        const float value = (weight_a * a + weight_b * b + weight_c * c) / area;
+        return wrap_sprite_coordinate(value, scaled_period) * scale;
+    }
+
+    void advance(float& value) const
+    {
+        value = advance_sprite_coordinate(value, step, period);
+    }
+};
+
+} // namespace
+
+void fill_triangle(int x0, int y0, int x1, int y1, int x2, int y2, uint16_t color)
+{
+    drawing_canvas.setColor(color);
+    drawing_canvas.startWrite();
+    draw_triangle_spans({x0, y0}, {x1, y1}, {x2, y2}, [](int y, int, int left, int right) {
+        drawing_canvas.writeFillRectPreclipped(left, y, right - left + 1, 1);
+    });
+    drawing_canvas.endWrite();
+}
+
+void draw_textured_triangle(lgfx::PPA_Sprite& sprite, const int xy[6], const float uv[6])
+{
+    const TrianglePoint a{xy[0], xy[1]}, b{xy[2], xy[3]}, c{xy[4], xy[5]};
+    const int64_t signed_area = triangle_edge(a, b, c);
+    if (signed_area == 0) return;
+    const int direction = signed_area > 0 ? 1 : -1;
+    const int64_t area = signed_area * direction;
+    const float step_b = float((c.y - a.y) * direction);
+    const float step_c = float((a.y - b.y) * direction);
+
+    const int width = sprite.width();
+    const int height = sprite.height();
+    if (width <= 0 || height <= 0) return;
+    const TriangleTextureAxis u(uv[0], uv[2], uv[4], width, step_b, step_c, float(area));
+    const TriangleTextureAxis v(uv[1], uv[3], uv[5], height, step_b, step_c, float(area));
+    const int pitch = drawing_canvas.width();
+    const auto* pixels = static_cast<const uint16_t*>(sprite.getBuffer());
+    auto* destination = static_cast<uint16_t*>(drawing_canvas.getBuffer());
+
+    draw_triangle_spans(a, b, c, [&](int y, int span_left, int left, int right) {
+        auto* out = destination + y * pitch;
+        // Restart periodically to bound float drift. Anchor the blocks to the
+        // unclipped span so clipping selects the same texels as a full draw.
+        constexpr int block_width = 32;
+        const int first_block = left - (left - span_left) % block_width;
+        for (int block_x = first_block; block_x <= right; block_x += block_width) {
+            const int64_t weight_b = triangle_edge(c, a, {block_x, y}) * direction;
+            const int64_t weight_c = triangle_edge(a, b, {block_x, y}) * direction;
+            const float weight_a = float(area - weight_b - weight_c);
+            float sample_u = u.start(weight_a, float(weight_b), float(weight_c), float(area));
+            float sample_v = v.start(weight_a, float(weight_b), float(weight_c), float(area));
+            const int first_x = std::max(left, block_x);
+            const int end_x = std::min(right + 1, block_x + block_width);
+            for (int x = block_x; x < first_x; ++x) {
+                u.advance(sample_u);
+                v.advance(sample_v);
+            }
+            for (int x = first_x; x < end_x; ++x) {
+                out[x] = pixels[int(sample_v) * width + int(sample_u)];
+                u.advance(sample_u);
+                v.advance(sample_v);
+            }
+        }
+    });
+}
+
 void draw_sprite(lgfx::PPA_Sprite& sprite, int x, int y, int32_t transparent,
                  bool flip_x, bool flip_y)
 {
@@ -774,7 +950,7 @@ void draw_sprite_region(lgfx::PPA_Sprite& sprite, int sx, int sy, int sw, int sh
 }
 
 void draw_textured_line(lgfx::PPA_Sprite& sprite, int x0, int y0, int x1, int y1,
-                        double sx, double sy, double sdx, double sdy)
+                        float sx, float sy, float sdx, float sdy)
 {
     const int width = sprite.width();
     const int height = sprite.height();
@@ -782,15 +958,16 @@ void draw_textured_line(lgfx::PPA_Sprite& sprite, int x0, int y0, int x1, int y1
         || !std::isfinite(sdx) || !std::isfinite(sdy)) return;
 
     // Reduce before adding so even very large finite inputs cannot overflow.
-    const auto wrap = [](double value, int size) {
-        double result = std::fmod(value, double(size));
-        if (result < 0) result += size;
-        return result < size ? result : 0.0;
+    const float period_x = width;
+    const float period_y = height;
+    sx = wrap_sprite_coordinate(sx, period_x);
+    sy = wrap_sprite_coordinate(sy, period_y);
+    sdx = wrap_sprite_step(sdx, period_x);
+    sdy = wrap_sprite_step(sdy, period_y);
+    const auto advance = [&] {
+        sx = advance_sprite_coordinate(sx, sdx, period_x);
+        sy = advance_sprite_coordinate(sy, sdy, period_y);
     };
-    sx = wrap(sx, width);
-    sy = wrap(sy, height);
-    sdx = wrap(sdx, width);
-    sdy = wrap(sdy, height);
 
     int32_t clip_x, clip_y, clip_width, clip_height;
     drawing_canvas.getClipRect(&clip_x, &clip_y, &clip_width, &clip_height);
@@ -819,10 +996,7 @@ void draw_textured_line(lgfx::PPA_Sprite& sprite, int x0, int y0, int x1, int y1
         // Keep the same floating-point accumulation as the general path,
         // including the clipped prefix, so texel boundaries do not shift.
         for (int skipped = std::abs(start - first); skipped > 0; --skipped) {
-            sx += sdx;
-            sy += sdy;
-            if (sx >= width) sx -= width;
-            if (sy >= height) sy -= height;
+            advance();
         }
         const int direction = first <= last ? 1 : -1;
         const int stride = direction * (horizontal ? 1 : int(drawing_canvas.width()));
@@ -833,10 +1007,7 @@ void draw_textured_line(lgfx::PPA_Sprite& sprite, int x0, int y0, int x1, int y1
             *out = pixels[static_cast<int>(sy) * width + static_cast<int>(sx)];
             if (--remaining == 0) return;
             out += stride;
-            sx += sdx;
-            sy += sdy;
-            if (sx >= width) sx -= width;
-            if (sy >= height) sy -= height;
+            advance();
         }
     }
 
@@ -854,10 +1025,7 @@ void draw_textured_line(lgfx::PPA_Sprite& sprite, int x0, int y0, int x1, int y1
         const int twice_error = 2 * error;
         if (twice_error >= dy) { error += dy; x0 += step_x; }
         if (twice_error <= dx) { error += dx; y0 += step_y; }
-        sx += sdx;
-        sy += sdy;
-        if (sx >= width) sx -= width;
-        if (sy >= height) sy -= height;
+        advance();
     }
 }
 

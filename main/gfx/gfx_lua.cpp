@@ -425,9 +425,25 @@ int line(lua_State* state)
     return 0;
 }
 
-double source_number(lua_State* state, int index)
+int triangle(lua_State* state)
 {
-    const double value = luaL_checknumber(state, index);
+    const auto x1 = coordinate(state, 1);
+    const auto y1 = coordinate(state, 2);
+    const auto x2 = coordinate(state, 3);
+    const auto y2 = coordinate(state, 4);
+    const auto x3 = coordinate(state, 5);
+    const auto y3 = coordinate(state, 6);
+    const auto color = drawing_color(state, 7);
+    canvas(state);
+    DrawCommand command{DrawOp::fill_triangle, {x1, y1, x2, y2, x3, y3}};
+    command.color = color;
+    enqueue(command);
+    return 0;
+}
+
+lua_Number source_number(lua_State* state, int index)
+{
+    const auto value = luaL_checknumber(state, index);
     luaL_argcheck(state, std::isfinite(value), index, "expected a finite source coordinate or step");
     return value;
 }
@@ -439,17 +455,31 @@ int tline(lua_State* state)
     const int y0 = coordinate(state, 3);
     const int x1 = coordinate(state, 4);
     const int y1 = coordinate(state, 5);
-    const double sx = source_number(state, 6);
-    const double sy = source_number(state, 7);
-    const double sdx = source_number(state, 8);
-    const double sdy = source_number(state, 9);
+    const float sx = source_number(state, 6);
+    const float sy = source_number(state, 7);
+    const float sdx = source_number(state, 8);
+    const float sdy = source_number(state, 9);
     canvas(state);
     DrawCommand command{DrawOp::textured_line, {x0, y0, x1, y1}};
     command.sprite = &sprite.canvas;
-    command.payload.source[0] = sx;
-    command.payload.source[1] = sy;
-    command.payload.source[2] = sdx;
-    command.payload.source[3] = sdy;
+    command.payload.uv[0] = sx;
+    command.payload.uv[1] = sy;
+    command.payload.uv[2] = sdx;
+    command.payload.uv[3] = sdy;
+    enqueue(command);
+    return 0;
+}
+
+int ttri(lua_State* state)
+{
+    auto& sprite = check_sprite(state, 1);
+    DrawCommand command{DrawOp::textured_triangle};
+    for (int i = 0; i < 6; ++i) {
+        command.args[i] = coordinate(state, i + 2);
+        command.payload.uv[i] = source_number(state, i + 8);
+    }
+    canvas(state);
+    command.sprite = &sprite.canvas;
     enqueue(command);
     return 0;
 }
@@ -536,7 +566,9 @@ int push_gfx_table(lua_State* state)
         {"rectfill", fill_rect},
         {"rect", rect},
         {"line", line},
+        {"tri", triangle},
         {"tline", tline},
+        {"ttri", ttri},
         {"print", text},
         {nullptr, nullptr},
     };
