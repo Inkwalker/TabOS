@@ -1,19 +1,22 @@
 -- A compact Wolfenstein-style gfx.tline demo. One map cell is one unit.
--- Render a centered square viewport with 180 wall rays.
-local W, H = 180, 180
-local VIEW_X = math.floor((gfx.width - W) / 2)
-local VIEW_Y = math.floor((gfx.height - H) / 2)
+local W, H = gfx.width, gfx.height
 local HALF_H = H / 2
 local TEX = 32
-local PLANE = 0.66 -- Approximately 67 degrees horizontal field of view.
-local FOCAL = W / (2 * PLANE)
-local MAX_DISTANCE = 6 -- Camera depth in map cells; also limits DDA traversal.
+local FOCAL = H / (2 * 0.66) -- Preserve the original vertical field of view.
+local PLANE = W / (2 * FOCAL)
+local MAX_DISTANCE = 12 -- Camera depth in map cells; also limits DDA traversal.
+local MOVE_RESPONSE = 16 -- Velocity approaches its target with a 1/16 second time constant.
+local BARREL_SIZE = 0.6
+local NEAR_DEPTH = 0.05
+local SPRITE_KEY = 0xf81f -- Magenta in RGB565.
 local floor, ceil, abs = math.floor, math.ceil, math.abs
-local min, max, cos, sin, sqrt = math.min, math.max, math.cos, math.sin, math.sqrt
+local min, max, cos, sin, sqrt, exp = math.min, math.max, math.cos, math.sin, math.sqrt, math.exp
 local tline, rectfill = gfx.tline, gfx.rectfill
-local print_text, cls, load_sprite = gfx.print, gfx.cls, gfx.load_sprite
+local sspr, clip = gfx.sspr, gfx.clip
+local print_text, load_sprite = gfx.print, gfx.load_sprite
 local key, keyp = input.key, input.keyp
 local cpu_load = sys.cpu_load
+local sort = table.sort
 local map = {
     "1111111111111111",
     "1000000000000001",
@@ -42,15 +45,27 @@ for y, row in ipairs(map) do
     map[y] = cells
 end
 
+-- World-space positions in open cells. Each barrel rests on the floor.
+local barrels = {
+    {x = 5.5, y = 3.45},
+    {x = 7.4, y = 3.8},
+    {x = 6.5, y = 1.5},
+    {x = 3.5, y = 7.5},
+    {x = 10.5, y = 9.5},
+    {x = 12.5, y = 14.5},
+}
+local visible_barrels = {}
+for i, object in ipairs(barrels) do object.index = i end
+
 -- Projection depends only on the fixed viewport and field of view.
 local row_depth, column_camera_x = {}, {}
 -- Reused each frame: wall-to-floor edges and horizontal texture span data.
 local floor_top, span_start = {}, {}
+local wall_depth = {}
 local floor_u, floor_v, floor_du, floor_dv = {}, {}, {}, {}
-local FIRST_FLOOR_ROW = math.max(HALF_H,
-    ceil(HALF_H + FOCAL * 0.5 / MAX_DISTANCE - 0.5))
-local CLIP_TOP = max(0, ceil(HALF_H - FOCAL * 0.5 / MAX_DISTANCE - 0.5))
-local CLIP_BOTTOM = min(H - 1, FIRST_FLOOR_ROW - 1)
+local FIRST_FLOOR_ROW = ceil(HALF_H + FOCAL * 0.5 / MAX_DISTANCE - 0.5)
+local CLIP_TOP = H - FIRST_FLOOR_ROW
+local CLIP_BOTTOM = FIRST_FLOOR_ROW - 1
 for y = FIRST_FLOOR_ROW, H - 1 do
     row_depth[y] = FOCAL * 0.5 / abs(y + 0.5 - HALF_H)
 end
@@ -59,13 +74,14 @@ for x = 0, W - 1 do
 end
 
 local px, py, angle = 3.5, 3.5, 0
-local walls, ground = {}, nil
+local vx, vy = 0, 0
+local walls = {}
+local ground, ceiling, barrel_sprite
 local sprites = {}
 local frames, elapsed, fps_label = 0, 0, "FPS --"
 local cpu0_label, cpu1_label = "CPU0 --", "CPU1 --"
 local ink = gfx.rgb(218, 208, 175)
-local hud = gfx.rgb(23, 26, 29)
-local ceiling_color = gfx.rgb(45, 49, 55)
+local distant_ceiling_color = gfx.rgb(45, 49, 55)
 local distant_floor_color = gfx.rgb(40, 39, 34)
 
 local function cell(x, y)
@@ -86,15 +102,72 @@ local function free(x, y)
         and cell(x - r, y + r) == 0 and cell(x + r, y + r) == 0
 end
 
-local function move(dx, dy)
-    -- Separate axes allow sliding along walls and around corners.
-    if free(px + dx, py) then px = px + dx end
-    if free(px, py + dy) then py = py + dy end
+local function move(step)
+    -- A wall cancels velocity into its face while allowing motion along it.
+    local next_x = px + vx * step
+    if free(next_x, py) then
+        px = next_x
+    else
+        vx = 0
+    end
+    local next_y = py + vy * step
+    if free(px, next_y) then
+        py = next_y
+    else
+        vy = 0
+    end
 end
 
 local function print_stat(text, y)
-    local x = VIEW_X + W - #text * 6 - 3
+    local x = W - #text * 6 - 3
     print_text(x, y, text, ink)
+end
+
+local function farther_first(a, b)
+    if a.depth == b.depth then return a.index < b.index end
+    return a.depth > b.depth
+end
+
+local function render_barrels(dir_x, dir_y)
+    local count = 0
+    for _, object in ipairs(barrels) do
+        local dx, dy = object.x - px, object.y - py
+        local depth = dx * dir_x + dy * dir_y
+        if depth >= NEAR_DEPTH and depth < MAX_DISTANCE then
+            local scale = FOCAL / depth
+            local side = dy * dir_x - dx * dir_y
+            local size = max(1, floor(BARREL_SIZE * scale + 0.5))
+            local x = floor(W * 0.5 + side * scale - size * 0.5 + 0.5)
+            local y = floor(HALF_H + 0.5 * scale + 0.5) - size
+            if x < W and x + size > 0 and y < H and y + size > 0 then
+                object.depth, object.size = depth, size
+                object.screen_x, object.screen_y = x, y
+                count = count + 1
+                visible_barrels[count] = object
+            end
+        end
+    end
+    for i = #visible_barrels, count + 1, -1 do visible_barrels[i] = nil end
+    if count == 0 then return end
+    sort(visible_barrels, farther_first)
+
+    for _, object in ipairs(visible_barrels) do
+        local x, y, size = object.screen_x, object.screen_y, object.size
+        local right = min(W, x + size)
+        local first
+        -- Draw a scaled sprite per visible run, keeping the full sprite's UVs
+        -- when a nearer wall hides part of it.
+        for column = max(0, x), right do
+            if column < right and object.depth < wall_depth[column] then
+                first = first or column
+            elseif first then
+                clip(first, 0, column - first, H)
+                sspr(barrel_sprite, 0, 0, TEX, TEX, x, y, size, size, SPRITE_KEY)
+                first = nil
+            end
+        end
+    end
+    clip()
 end
 
 local function render()
@@ -102,17 +175,18 @@ local function render()
     local plane_x, plane_y = -dir_y * PLANE, dir_x * PLANE
 
     -- Clear every frame so walls leaving the view cannot leave stale pixels.
-    rectfill(VIEW_X, VIEW_Y, W, HALF_H, ceiling_color)
-    rectfill(VIEW_X, VIEW_Y + HALF_H, W, H - HALF_H, distant_floor_color)
+    local last_row = H - 1
+    local horizon = floor(HALF_H)
+    rectfill(0, 0, W, horizon, distant_ceiling_color)
+    rectfill(0, horizon, W, H - horizon, distant_floor_color)
     -- A black far-plane wall closes the view where rays reach the distance cap.
     if CLIP_BOTTOM >= CLIP_TOP then
-        rectfill(VIEW_X, VIEW_Y + CLIP_TOP, W, CLIP_BOTTOM - CLIP_TOP + 1, 0x0000)
+        rectfill(0, CLIP_TOP, W, CLIP_BOTTOM - CLIP_TOP + 1, 0x0000)
     end
 
-    -- At a fixed screen row, floor depth is constant. A horizontal
-    -- tline can therefore step linearly through world-space texture positions.
-    -- Rows beyond MAX_DISTANCE retain the solid distant-floor color.
-    for y = FIRST_FLOOR_ROW, H - 1 do
+    -- The camera sits halfway between floor and ceiling, so mirrored rows
+    -- share the same depth and world-space texture coordinates.
+    for y = FIRST_FLOOR_ROW, last_row do
         local depth = row_depth[y]
         local step_x = depth * 2 * plane_x / W
         local step_y = depth * 2 * plane_y / W
@@ -124,6 +198,7 @@ local function render()
 
     for x = 0, W - 1 do
         floor_top[x] = FIRST_FLOOR_ROW -- No wall hit: floor is fully visible.
+        wall_depth[x] = MAX_DISTANCE
         local camera_x = column_camera_x[x]
         local ray_x = dir_x + plane_x * camera_x
         local ray_y = dir_y + plane_y * camera_x
@@ -153,27 +228,26 @@ local function render()
             -- Rays use an unnormalized camera plane: distance is perpendicular
             -- camera depth already, so walls stay straight without fish-eye.
             distance = max(distance, 0.001)
+            wall_depth[x] = distance
             local wall_u = side == 1 and py + distance * ray_y or px + distance * ray_x
             wall_u = floor((wall_u - floor(wall_u)) * TEX)
             if (side == 1 and ray_x > 0) or (side == 2 and ray_y < 0) then
                 wall_u = TEX - 1 - wall_u
             end
             local projected = FOCAL / distance
-            local top = max(0, ceil(HALF_H - projected * 0.5 - 0.5))
-            local bottom = min(H - 1, ceil(HALF_H + projected * 0.5 - 0.5) - 1)
+            local bottom = min(last_row, ceil(HALF_H + projected * 0.5 - 0.5) - 1)
+            local top = last_row - bottom
             floor_top[x] = max(FIRST_FLOOR_ROW, bottom + 1)
             if bottom >= top then
                 -- Start UV at the visible pixel, preserving scale near walls.
                 local v = ((top + 0.5 - HALF_H) / projected + 0.5) * TEX
-                tline(walls[material][side], VIEW_X + x, VIEW_Y + top,
-                    VIEW_X + x, VIEW_Y + bottom,
-                    wall_u, v, 0, TEX / projected)
+                tline(walls[material][side], x, top, x, bottom, wall_u, v, 0, TEX / projected)
             end
         end
     end
 
-    -- Sweep wall bottoms to open/close visible horizontal floor spans. Only
-    -- process rows whose visibility changes, rather than testing every pixel.
+    -- Sweep wall bottoms to find visible floor spans. Symmetric wall edges
+    -- let the same spans draw the ceiling in reverse row order.
     local previous = H
     for x = 0, W do
         local current = x < W and min(H, floor_top[x]) or H
@@ -182,18 +256,20 @@ local function render()
         elseif current > previous then
             for y = previous, current - 1 do
                 local first = span_start[y]
-                tline(ground, VIEW_X + first, VIEW_Y + y,
-                    VIEW_X + x - 1, VIEW_Y + y,
-                    floor_u[y] + first * floor_du[y],
-                    floor_v[y] + first * floor_dv[y], floor_du[y], floor_dv[y])
+                local du, dv = floor_du[y], floor_dv[y]
+                local u, v = floor_u[y] + first * du, floor_v[y] + first * dv
+                tline(ground, first, y, x - 1, y, u, v, du, dv)
+                local ceiling_y = last_row - y
+                tline(ceiling, first, ceiling_y, x - 1, ceiling_y, u, v, du, dv)
             end
         end
         previous = current
     end
 
-    print_stat(fps_label, VIEW_Y + 3)
-    print_stat(cpu0_label, VIEW_Y + 13)
-    print_stat(cpu1_label, VIEW_Y + 23)
+    render_barrels(dir_x, dir_y)
+    print_stat(fps_label, 3)
+    print_stat(cpu0_label, 13)
+    print_stat(cpu1_label, 23)
 end
 
 function init()
@@ -201,13 +277,17 @@ function init()
     walls[1] = {load("brick"), load("brick_side")}
     walls[2] = {load("metal"), load("metal_side")}
     ground = load("floor")
-    cls(hud)
+    ceiling = load("ceiling")
+    barrel_sprite = load("barrel")
     render()
 end
 
 function update(dt)
     if keyp(1, 1) then os.exit(); return end
-    if keyp(3, 5) then px, py, angle = 3.5, 3.5, 0 end -- R
+    if keyp(3, 5) then -- R
+        px, py, angle = 3.5, 3.5, 0
+        vx, vy = 0, 0
+    end
     frames, elapsed = frames + 1, elapsed + dt
     if elapsed >= 0.5 then
         fps_label = "FPS " .. floor(frames / elapsed + 0.5)
@@ -231,12 +311,16 @@ function update(dt)
     dt = min(dt, 0.1)
     local steps = max(1, ceil(dt / 0.02))
     local step = dt / steps
+    local response = 1 - exp(-MOVE_RESPONSE * step)
     local speed = forward ~= 0 and strafe ~= 0 and 2 / sqrt(2) or 2
     for _ = 1, steps do
         angle = (angle + turn * 1.9 * step) % (2 * math.pi)
         local dx, dy = cos(angle), sin(angle)
-        move((dx * forward - dy * strafe) * speed * step,
-            (dy * forward + dx * strafe) * speed * step)
+        local target_x = (dx * forward - dy * strafe) * speed
+        local target_y = (dy * forward + dx * strafe) * speed
+        vx = vx + (target_x - vx) * response
+        vy = vy + (target_y - vy) * response
+        move(step)
     end
     render()
 end
