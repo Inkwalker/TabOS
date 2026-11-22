@@ -28,7 +28,7 @@ static_assert(ticks_per_second >= updates_per_second);
 
 #if CONFIG_LUA_USE_PSRAM
 struct LuaMemory {
-    memory::Usage allocations;
+    memory::Allocator allocator;
     bool warnings_enabled = true;
     bool warning_continues = false;
 };
@@ -150,13 +150,14 @@ void run(lua_State* state, std::unique_ptr<Startup>& startup)
     }
 }
 
-void task(void* context)
+void run_vm(std::unique_ptr<Startup> startup)
 {
-    std::unique_ptr<Startup> startup(static_cast<Startup*>(context));
-
 #if CONFIG_LUA_USE_PSRAM
     LuaMemory lua_memory;
-    auto* state = lua_newstate(memory::allocate, &lua_memory.allocations, luaL_makeseed(nullptr));
+    if (!lua_memory.allocator.has_sram()) {
+        ESP_LOGW(tag, "Could not reserve the Lua SRAM pool, using PSRAM");
+    }
+    auto* state = lua_newstate(memory::Allocator::allocate, &lua_memory.allocator, luaL_makeseed(nullptr));
 #else
     auto* state = luaL_newstate();
 #endif
@@ -170,7 +171,11 @@ void task(void* context)
     } else {
         ESP_LOGE(tag, "Could not allocate a Lua state");
     }
-    startup.reset();
+}
+
+void task(void* context)
+{
+    run_vm(std::unique_ptr<Startup>(static_cast<Startup*>(context)));
     vTaskDelete(nullptr);
 }
 }

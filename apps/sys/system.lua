@@ -580,4 +580,5 @@ function update(dt)
         taskbar:draw(task_apps, runner, colors, active_app, battery)
     end
     gfx.flip()
+    collectgarbage("step")
 end
