@@ -1,36 +1,26 @@
+local PixelCursor = require("pixel_cursor")
+
 local PenTool = {icon_path = "spr/pen.png", history_id = 1, history_version = 1}
 PenTool.__index = PenTool
 
-local arrows = {left = {-1, 0}, right = {1, 0}, up = {0, -1}, down = {0, 1}}
 local pixel_record = "<I2I2"
 local pixel_record_size = string.packsize(pixel_record)
 
 function PenTool.new(color, cursor_color)
-    return setmetatable({color = color, cursor_color = cursor_color}, PenTool)
+    return setmetatable({color = color, cursor = PixelCursor.new(cursor_color)}, PenTool)
 end
 
 function PenTool:reset(canvas, x, y)
     self.stroke, self.stroke_x, self.stroke_y = nil, nil, nil
-    if x ~= nil and y ~= nil then
-        self.x, self.y = canvas:clamp_pixel(x, y)
-    else
-        self.x, self.y = canvas:pixel_at(canvas.width // 2, canvas.height // 2, true)
-    end
+    self.cursor:reset(canvas, x, y)
 end
 
 function PenTool:activate(canvas)
-    if canvas.image and (self.x == nil or not canvas:pixel_rect(self.x, self.y)) then
-        self:reset(canvas)
-    end
+    self.cursor:activate(canvas)
 end
 
 function PenTool:draw(canvas)
-    local x, y, width, height = canvas:pixel_rect(self.x, self.y)
-    if not x then return end
-    local left, top = math.max(canvas.x, x - 1), math.max(canvas.y, y - 1)
-    local right = math.min(canvas.x + canvas.width, x + width + 1)
-    local bottom = math.min(canvas.y + canvas.height, y + height + 1)
-    gfx.rect(left, top, right - left, bottom - top, self.cursor_color)
+    self.cursor:draw(canvas)
 end
 
 local function paint_line(canvas, x, y, end_x, end_y, color, stroke)
@@ -62,9 +52,10 @@ local function paint_touch(pen, canvas, x, y)
         pen.stroke_x, pen.stroke_y = nil, nil
         return false
     end
-    local moved = pen.x ~= px or pen.y ~= py
+    local cursor = pen.cursor
+    local moved = cursor.x ~= px or cursor.y ~= py
     local changed = paint_line(canvas, pen.stroke_x or px, pen.stroke_y or py, px, py, pen.color, pen.stroke)
-    pen.x, pen.y = px, py
+    cursor.x, cursor.y = px, py
     pen.stroke_x, pen.stroke_y = px, py
     if changed then canvas:render() end
     return changed or moved
@@ -97,18 +88,12 @@ end
 
 function PenTool:key_pressed(canvas, key)
     if key == "`" then
-        local changed, before, index = canvas:paint_pixel(self.x, self.y, self.color)
+        local changed, before, index = canvas:paint_pixel(self.cursor.x, self.cursor.y, self.color)
         if not changed then return false end
         canvas:render()
         return true, string.pack(pixel_record, index, before ~ self.color)
     end
-    local delta = arrows[key]
-    if not delta then return false end
-    local x, y = canvas:clamp_pixel(self.x + delta[1], self.y + delta[2])
-    if x == self.x and y == self.y then return false end
-    self.x, self.y = x, y
-    canvas:reveal_pixel(x, y)
-    return true
+    return self.cursor:move(canvas, key)
 end
 
 function PenTool.validate_history(version, payload, pixels)

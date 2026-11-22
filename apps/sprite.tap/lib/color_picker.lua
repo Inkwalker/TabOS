@@ -15,22 +15,26 @@ function ColorPicker.new(x, y, height, background, color, palette_path)
 end
 
 function ColorPicker:select(x, y)
-    self.selected_x, self.selected_y = x, y
+    self.selection = {path = self.palette_path, x = x, y = y}
     self.color = self.palette:pget(x, y)
     return self.color
+end
+
+function ColorPicker:set_custom_color(color)
+    self.selection = {color = color}
+    self.color = color
 end
 
 function ColorPicker:restore(saved)
     if saved and saved.path == self.palette_path then
         return self:select(saved.x, saved.y)
     end
+    if saved and saved.color ~= nil then self:set_custom_color(saved.color) end
     return self.color
 end
 
 function ColorPicker:save_state()
-    if self.selected_x then
-        return {path = self.palette_path, x = self.selected_x, y = self.selected_y}
-    end
+    return self.selection
 end
 
 function ColorPicker:draw()
@@ -38,8 +42,9 @@ function ColorPicker:draw()
     gfx.rectfill(self.x, self.y, self.width, self.height, self.background)
     gfx.spr(self.palette, x, y)
 
-    if self.selected_x then
-        local marker_x, marker_y = x + self.selected_x, y + self.selected_y
+    local selection = self.selection
+    if selection and selection.x then
+        local marker_x, marker_y = x + selection.x, y + selection.y
         gfx.rect(marker_x - 3, marker_y - 3, 7, 7, 0x0000)
         gfx.rect(marker_x - 2, marker_y - 2, 5, 5, 0xffff)
     end
@@ -63,7 +68,8 @@ function ColorPicker:update_touch(touch, press)
 
     local x = math.max(0, math.min(palette_width - 1, touch.x - self.palette_x))
     local y = math.max(0, math.min(palette_height - 1, touch.y - self.palette_y))
-    if x ~= self.selected_x or y ~= self.selected_y then
+    local selection = self.selection
+    if not selection or x ~= selection.x or y ~= selection.y then
         return self:select(x, y)
     end
 end

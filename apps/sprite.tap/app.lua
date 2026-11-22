@@ -7,6 +7,7 @@ local KeyboardManager = require("keyboard_manager")
 local Label = require("label")
 local PanTool = require("pan_tool")
 local PenTool = require("pen_tool")
+local PipetteTool = require("pipette_tool")
 local PngFile = require("png_file")
 local SpriteCanvas = require("sprite_canvas")
 local ToolManager = require("tool_manager")
@@ -34,9 +35,13 @@ local tools = ToolManager.new(canvas, function(tool, payload)
     document.history:record(tool, payload)
 end)
 local pen = PenTool.new(colors.active_color, colors.accent)
+local pipette = PipetteTool.new(function(color)
+    pen.color = color
+    color_picker:set_custom_color(color)
+end, colors.accent)
 tools:set_active(PanTool)
 local tool_panel = ToolPanel.new({x = 0, y = toolbar_height, width = panel_width, height = workspace_height},
-    colors, tools, {PanTool, pen})
+    colors, tools, {PanTool, pen, pipette})
 local title_x = 104
 local title_label = Label.new(title_x, 8, zoom_out_x - title_x - 4, "Sprite Editor", colors.text)
 local zoom_x = zoom_out_x + zoom_button_width
@@ -103,6 +108,7 @@ local function open_image(path, view)
     document = {path = path, source = source, image = image, history = history}
     save_button.enabled = true
     pen:reset(canvas, view.cursor_x, view.cursor_y)
+    pipette.cursor:reset(canvas, view.pipette_x, view.pipette_y)
     title_label:set_text(path:match("[^/]+$") or "Sprite Editor")
     hint_label.visible = false
     zoom_label.visible = true
@@ -185,7 +191,8 @@ end
 
 local function change_zoom(step)
     if document and canvas:zoom_by(step) then
-        if tools.active == pen then canvas:reveal_pixel(pen.x, pen.y) end
+        local cursor = tools.active.cursor
+        if cursor then canvas:reveal_pixel(cursor.x, cursor.y) end
         update_zoom_label()
         draw()
     end
@@ -233,7 +240,10 @@ function init(saved, explicit_args)
             error("Cannot resume Sprite Editor: " .. (message or "checkpoint load failed"), 0)
         end
     end
-    if document and view and view.tool == "pen" then tools:set_active(pen) end
+    if document and view then
+        if view.tool == "pen" then tools:set_active(pen) end
+        if view.tool == "pipette" then tools:set_active(pipette) end
+    end
     update_status(message)
     draw()
     Checkpoint.clear(checkpoint_root)
@@ -278,9 +288,12 @@ function save_state()
             return nil, message
         end
     end
+    local tool = tools.active == pen and "pen" or "pan"
+    if tools.active == pipette then tool = "pipette" end
     return {path = document.path, zoom = canvas.zoom, pan_x = canvas.pan_x, pan_y = canvas.pan_y,
         checkpoint = checkpoint, source = checkpoint and document.source, picker = picker,
-        cursor_x = pen.x, cursor_y = pen.y, tool = tools.active == pen and "pen" or "pan"}
+        cursor_x = pen.cursor.x, cursor_y = pen.cursor.y,
+        pipette_x = pipette.cursor.x, pipette_y = pipette.cursor.y, tool = tool}
 end
 
 function deinit()

@@ -157,11 +157,15 @@ function SpriteCanvas:set_sprite(image, zoom, pan_x, pan_y)
     return true
 end
 
+function SpriteCanvas:pixel_color(x, y)
+    return self.pending_edits[y * self.image.width + x] or self.image:pget(x, y)
+end
+
 function SpriteCanvas:paint_pixel(x, y, color)
     if x < 0 or x >= self.image.width or y < 0 or y >= self.image.height then return false end
-    local index = y * self.image.width + x
-    local before = self.pending_edits[index] or self.image:pget(x, y)
+    local before = self:pixel_color(x, y)
     if before == color then return false end
+    local index = y * self.image.width + x
     self.pending_edits[index] = color
     return true, before, index
 end
