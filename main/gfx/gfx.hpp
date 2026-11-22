@@ -35,10 +35,21 @@ esp_err_t select_target(int width, int height);
 // Renderer-only: save the active canvas to an equally sized sprite.
 esp_err_t save_canvas(lgfx::PPA_Sprite& sprite);
 
+struct FillPattern {
+    explicit FillPattern(uint16_t mask)
+        : mask(mask), rows{uint8_t(mask & 0xF), uint8_t((mask >> 4) & 0xF),
+                           uint8_t((mask >> 8) & 0xF), uint8_t(mask >> 12)} {}
+
+    uint16_t mask;
+    uint8_t rows[4];
+};
+
 // Renderer-only blocking operations with clipping and software fallback. Drawing pixels
 // are ready for reads, subsequent software drawing, and flip() on return.
-void fill_rect(int x, int y, int width, int height, uint16_t color);
-void fill_triangle(int x0, int y0, int x1, int y1, int x2, int y2, uint16_t color);
+void fill_rect(int x, int y, int width, int height, uint16_t color, const FillPattern& pattern);
+void fill_circle(int x, int y, int radius, uint16_t color, const FillPattern& pattern);
+void fill_triangle(int x0, int y0, int x1, int y1, int x2, int y2, uint16_t color,
+                   const FillPattern& pattern);
 void draw_sprite(lgfx::PPA_Sprite& sprite, int x, int y, int32_t transparent = -1,
                  bool flip_x = false, bool flip_y = false);
 

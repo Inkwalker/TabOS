@@ -5,9 +5,9 @@
 namespace gfx {
 
 enum class DrawOp {
-    barrier, flip, target, save, pget, clip, reset_clip, pixel, circle, fill_circle,
-    ellipse, fill_ellipse, rect, fill_rect, line, fill_triangle, sprite, sprite_region,
-    textured_line, textured_triangle, text, text_continue,
+    barrier, flip, target, save, pget, clip, reset_clip, clear, set_fill_pattern,
+    pixel, circle, fill_circle, ellipse, fill_ellipse, rect, fill_rect, line, fill_triangle,
+    sprite, sprite_region, textured_line, textured_triangle, text, text_continue,
 };
 
 struct CommandCompletion;

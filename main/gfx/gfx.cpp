@@ -2,6 +2,7 @@
 #include "commands.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstdlib>
@@ -625,20 +626,78 @@ esp_err_t swap_canvas()
     return ESP_OK;
 }
 
-void fill_rect(int x, int y, int width, int height, uint16_t color)
-{
-    const int right = std::min(int(drawing_canvas.width()), x + width);
-    const int bottom = std::min(int(drawing_canvas.height()), y + height);
-    x = std::max(0, x);
-    y = std::max(0, y);
-    width = right - x;
-    height = bottom - y;
-    if (width <= 0 || height <= 0) return;
+namespace {
 
-    drawing_canvas.fillRect(x, y, width, height, color);
+template <unsigned Row>
+void write_pattern_row(uint16_t* pixels, int left, int end, uint16_t color)
+{
+    if constexpr (Row == 0x0) {
+        return;
+    } else if constexpr (Row == 0xF) {
+        std::fill(pixels + left, pixels + end, color);
+    } else {
+        // Align to the tile in canvas coordinates, even when the span is clipped.
+        const int first_tile = std::min(end, (left + 3) & ~3);
+        for (; left < first_tile; ++left) {
+            if (Row & (1u << (left & 3))) pixels[left] = color;
+        }
+        for (; left + 4 <= end; left += 4) {
+            if constexpr (Row & 0x1) pixels[left] = color;
+            if constexpr (Row & 0x2) pixels[left + 1] = color;
+            if constexpr (Row & 0x4) pixels[left + 2] = color;
+            if constexpr (Row & 0x8) pixels[left + 3] = color;
+        }
+        for (; left < end; ++left) {
+            if (Row & (1u << (left & 3))) pixels[left] = color;
+        }
+    }
 }
 
-namespace {
+constexpr std::array pattern_row_writers{
+    write_pattern_row<0x0>, write_pattern_row<0x1>, write_pattern_row<0x2>, write_pattern_row<0x3>,
+    write_pattern_row<0x4>, write_pattern_row<0x5>, write_pattern_row<0x6>, write_pattern_row<0x7>,
+    write_pattern_row<0x8>, write_pattern_row<0x9>, write_pattern_row<0xA>, write_pattern_row<0xB>,
+    write_pattern_row<0xC>, write_pattern_row<0xD>, write_pattern_row<0xE>, write_pattern_row<0xF>,
+};
+
+class PatternSpans {
+public:
+    PatternSpans(uint16_t color, const FillPattern& pattern)
+        : pixels_(static_cast<uint16_t*>(drawing_canvas.getBuffer())), pitch_(drawing_canvas.width()),
+          color_(color), pattern_(pattern)
+    {
+        drawing_canvas.getClipRect(&clip_x_, &clip_y_, &clip_width_, &clip_height_);
+    }
+
+    void write_span(int y, int left, int end_x) const
+    {
+        pattern_row_writers[pattern_.rows[y & 3]](pixels_ + y * pitch_, left, end_x, color_);
+    }
+
+    void write_rect(int x, int y, int width, int height) const
+    {
+        const int left = std::max(x, int(clip_x_));
+        const int end_x = std::min(x + width, int(clip_x_ + clip_width_));
+        if (left >= end_x) return;
+        const int end_y = std::min(y + height, int(clip_y_ + clip_height_));
+        for (y = std::max(y, int(clip_y_)); y < end_y; ++y) {
+            write_span(y, left, end_x);
+        }
+    }
+
+    bool intersects(int left, int top, int right, int bottom) const
+    {
+        return clip_width_ > 0 && clip_height_ > 0 && left < clip_x_ + clip_width_ && right >= clip_x_
+            && top < clip_y_ + clip_height_ && bottom >= clip_y_;
+    }
+
+private:
+    uint16_t* pixels_;
+    int pitch_;
+    uint16_t color_;
+    const FillPattern& pattern_;
+    int32_t clip_x_, clip_y_, clip_width_, clip_height_;
+};
 
 struct TrianglePoint { int x, y; };
 
@@ -757,8 +816,76 @@ struct TriangleTextureAxis {
 
 } // namespace
 
-void fill_triangle(int x0, int y0, int x1, int y1, int x2, int y2, uint16_t color)
+void fill_rect(int x, int y, int width, int height, uint16_t color, const FillPattern& pattern)
 {
+    if (pattern.mask == 0) return;
+    if (pattern.mask != UINT16_MAX) {
+        PatternSpans(color, pattern).write_rect(x, y, width, height);
+        return;
+    }
+
+    const int right = std::min(int(drawing_canvas.width()), x + width);
+    const int bottom = std::min(int(drawing_canvas.height()), y + height);
+    x = std::max(0, x);
+    y = std::max(0, y);
+    width = right - x;
+    height = bottom - y;
+    if (width <= 0 || height <= 0) return;
+
+    drawing_canvas.fillRect(x, y, width, height, color);
+}
+
+void fill_circle(int x, int y, int radius, uint16_t color, const FillPattern& pattern)
+{
+    if (pattern.mask == 0) return;
+    if (pattern.mask == UINT16_MAX) {
+        drawing_canvas.fillCircle(x, y, radius, color);
+        return;
+    }
+
+    const PatternSpans spans(color, pattern);
+    if (!spans.intersects(x - radius, y - radius, x + radius, y + radius)) return;
+    spans.write_rect(x - radius, y, 2 * radius + 1, 1);
+    if (radius == 0) return;
+
+    // Match the integer stepping in LovyanGFX's fillCircleHelper.
+    int outer = radius;
+    int inner = 0;
+    int error = 1 - radius;
+    int step_x = 1;
+    int step_y = -2 * radius;
+    do {
+        const int previous_inner = inner;
+        while (error < 0) {
+            ++inner;
+            step_x += 2;
+            error += step_x;
+        }
+        step_y += 2;
+        error += step_y;
+
+        const int height = inner - previous_inner;
+        if (height > 0) {
+            spans.write_rect(x - outer, y + previous_inner + 1, 2 * outer + 1, height);
+            spans.write_rect(x - outer, y - inner, 2 * outer + 1, height);
+        }
+        spans.write_rect(x - inner, y + outer, 2 * inner + 1, 1);
+        spans.write_rect(x - inner, y - outer, 2 * inner + 1, 1);
+    } while (inner < --outer);
+}
+
+void fill_triangle(int x0, int y0, int x1, int y1, int x2, int y2, uint16_t color,
+                   const FillPattern& pattern)
+{
+    if (pattern.mask == 0) return;
+    if (pattern.mask != UINT16_MAX) {
+        const PatternSpans spans(color, pattern);
+        draw_triangle_spans({x0, y0}, {x1, y1}, {x2, y2}, [&](int y, int, int left, int right) {
+            spans.write_span(y, left, right + 1);
+        });
+        return;
+    }
+
     drawing_canvas.setColor(color);
     drawing_canvas.startWrite();
     draw_triangle_spans({x0, y0}, {x1, y1}, {x2, y2}, [](int y, int, int left, int right) {

@@ -277,8 +277,8 @@ int rgb(lua_State* state)
 int clear(lua_State* state)
 {
     const uint16_t color = lua_isnoneornil(state, 1) ? 0 : check_color(state, 1);
-    auto& target = canvas(state);
-    DrawCommand command{DrawOp::fill_rect, {0, 0, int(target.width()), int(target.height())}};
+    canvas(state);
+    DrawCommand command{DrawOp::clear};
     command.color = color;
     enqueue(command);
     return 0;
@@ -287,6 +287,15 @@ int clear(lua_State* state)
 int set_color(lua_State* state)
 {
     gfx::set_color(check_color(state, 1));
+    return 0;
+}
+
+int set_fill_pattern(lua_State* state)
+{
+    const auto mask = lua_gettop(state) == 0 ? UINT16_MAX : luaL_checkinteger(state, 1);
+    luaL_argcheck(state, mask >= 0 && mask <= UINT16_MAX, 1, "fill pattern out of range");
+    canvas(state);
+    enqueue(DrawCommand{DrawOp::set_fill_pattern, {static_cast<int>(mask)}});
     return 0;
 }
 
@@ -555,6 +564,7 @@ int push_gfx_table(lua_State* state)
         {"flip", swap_canvas},
         {"presenter_fps", presenter_fps},
         {"color", set_color},
+        {"fill_pattern", set_fill_pattern},
         {"clip", clip},
         {"rgb", rgb},
         {"pset", set_pixel},

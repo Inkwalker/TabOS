@@ -81,6 +81,13 @@ function gfx.presenter_fps() end
 ---@param color integer RGB565 color (0–65535).
 function gfx.color(color) end
 
+---Set the repeating 4×4 mask for rectfill, circfill, and tri in drawing order.
+---Bit 4 * (y % 4) + (x % 4) selects the fill color; zero preserves the existing pixel.
+---The mask persists across flip and target changes. With no arguments, restore solid fills (0xFFFF).
+---@overload fun()
+---@param mask integer Fill mask (0x0000–0xFFFF).
+function gfx.fill_pattern(mask) end
+
 ---Pack three integer channels (0–255) into RGB565.
 ---With one argument, unpack an RGB565 color into three 8-bit channels.
 ---@overload fun(color: integer): integer, integer, integer
@@ -157,7 +164,7 @@ function gfx.rectfill(x, y, width, height, color) end
 ---@param color? integer RGB565 color; defaults to the current drawing color.
 function gfx.line(x1, y1, x2, y2, color) end
 
----Experimental. Draw a triangle filled with a single color.
+---Experimental. Draw a filled triangle.
 ---Collinear or coincident vertices draw nothing.
 ---@param x1 integer Coordinate from -32768 to 32767.
 ---@param y1 integer Coordinate from -32768 to 32767.

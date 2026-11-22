@@ -16,6 +16,7 @@ The Lua shell calls `gfx.flip()` at the end of each update, after app and shell 
 | `gfx.clip()` | Reset the clip rectangle to the active canvas size. |
 | `gfx.presenter_fps()` | Return the last sampled display presentation rate, or `0` before the first sample. |
 | `gfx.color(color)` | Set the current drawing color. |
+| `gfx.fill_pattern([mask])` | Set the repeating 4×4 fill mask for `rectfill`, `circfill`, and `tri`. With no arguments, restore solid fills. |
 | `gfx.rgb(r, g, b)` | Pack three integer channels in 0–255 into an RGB565 integer. |
 | `gfx.rgb(color)` | Unpack RGB565 into three 8-bit channel values `r, g, b`. |
 | `gfx.pset(x, y [, color])` | Draw a pixel. |
@@ -27,7 +28,7 @@ The Lua shell calls `gfx.flip()` at the end of each update, after app and shell 
 | `gfx.rect(x, y, width, height [, color])` | Draw a rectangle outline from the top-left corner. |
 | `gfx.rectfill(x, y, width, height [, color])` | Draw a filled rectangle from the top-left corner. |
 | `gfx.line(x1, y1, x2, y2 [, color])` | Draw a line including both endpoints. |
-| `gfx.tri(x1, y1, x2, y2, x3, y3 [, color])` | **Experimental.** Draw a triangle filled with a single color. Vertices can be in either winding order. Collinear or coincident vertices draw nothing. |
+| `gfx.tri(x1, y1, x2, y2, x3, y3 [, color])` | **Experimental.** Draw a filled triangle. Vertices can be in either winding order. Collinear or coincident vertices draw nothing. |
 | `gfx.tline(spr, x0, y0, x1, y1, sx, sy, sdx, sdy)` | Draw a textured line including both endpoints, starting with sprite position `(sx, sy)` and advancing it by `(sdx, sdy)` per line pixel. |
 | `gfx.ttri(spr, x1, y1, x2, y2, x3, y3, u1, v1, u2, v2, u3, v3)` | **Experimental.** Draw a textured triangle. Each `(u, v)` pair maps to the corresponding `(x, y)` vertex. |
 | `gfx.print(x, y, text [, color])` | Draw a string starting at `(x, y)` with automatic wrapping disabled. |
@@ -41,6 +42,8 @@ The Lua shell calls `gfx.flip()` at the end of each update, after app and shell 
 | `sprite:close()` | Release sprite memory. Closing more than once is safe. |
 
 Circle radii are integers in 0–32767, ellipse radii in 0–512, and rectangle dimensions in 1–32767. Drawing and setter calls return no values.
+
+The fill mask is an integer from `0x0000` to `0xFFFF`. Bit `4 * (y % 4) + (x % 4)` selects whether to write the fill color at canvas pixel `(x, y)`. A zero bit preserves the existing pixel. `0xA5A5` gives a checkerboard, and `0xFFFF` restores the initial solid fill. Pattern changes take effect in queue order and persist across `flip()` and `target()`. `cls()` always fills its clipped region with a solid color.
 
 Sprite and `sspr` dimensions must be in 1–32767. PNG transparency is flattened against black; sprites do not retain alpha.
 

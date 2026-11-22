@@ -14,7 +14,8 @@ local beep_remaining = {}
 local knight_sprite
 local sprite_transparent = gfx.rgb(255, 0, 255)
 local render_mode = 1
-local render_labels = {"Squares: ", "Sprites (spr): ", "Sprites (sspr): "}
+local checkerboard_mode = 4
+local render_labels = {"Squares: ", "Sprites (spr): ", "Sprites (sspr): ", "Checkerboard: "}
 local clip_enabled = false
 local clip_size = 128
 local clip_x, clip_y = (gfx.width - clip_size) // 2, (gfx.height - clip_size) // 2
@@ -43,9 +44,10 @@ local function update_beeps(dt)
 end
 
 local function toggle_render_mode()
-    render_mode = render_mode % 3 + 1
-    width = render_mode > 1 and knight_sprite.width or 32
-    height = render_mode > 1 and knight_sprite.height or 32
+    render_mode = render_mode % #render_labels + 1
+    local sprite_mode = render_mode == 2 or render_mode == 3
+    width = sprite_mode and knight_sprite.width or 32
+    height = sprite_mode and knight_sprite.height or 32
     max_x, max_y = gfx.width - width, gfx.height - height
     for _, rect in ipairs(rectangles) do
         rect.x = math.min(rect.x, max_x)
@@ -100,6 +102,7 @@ local function set_square_count(count)
 end
 
 function init()
+    gfx.fill_pattern()
     gfx.print(1, 1, "Initializing...")
     sys.cpu_load()
     knight_sprite = assert(gfx.load_sprite(os.path("spr/knight.png")))
@@ -140,6 +143,8 @@ function update(dt)
     local touches = input.touch()
     gfx.cls()
     if clip_enabled then gfx.clip(clip_x, clip_y, clip_size, clip_size) end
+    local checkerboard = render_mode == checkerboard_mode
+    if checkerboard then gfx.fill_pattern(0xA5A5) end
     for i = 1, #rectangles do
         local rect = rectangles[i]
         if #touches > 0 then
@@ -169,6 +174,7 @@ function update(dt)
         end
     end
 
+    if checkerboard then gfx.fill_pattern() end
     gfx.clip()
     local cpu_x = gfx.width - #cpu_label * glyph_width - 1
     gfx.color(0x0000)

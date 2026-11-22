@@ -30,6 +30,7 @@ static_assert(std::is_trivially_copyable<DrawCommand>::value);
 void draw_commands(void*)
 {
     DrawCommand command{};
+    FillPattern pattern{UINT16_MAX};
     for (;;) {
         xQueueReceive(commands, &command, portMAX_DELAY);
         auto& target = *active_canvas();
@@ -44,13 +45,15 @@ void draw_commands(void*)
         case DrawOp::pget: pixel = target.readPixel(a[0], a[1]); break;
         case DrawOp::clip: target.setClipRect(a[0], a[1], a[2], a[3]); break;
         case DrawOp::reset_clip: target.clearClipRect(); break;
+        case DrawOp::clear: target.fillScreen(command.color); break;
+        case DrawOp::set_fill_pattern: pattern = FillPattern{static_cast<uint16_t>(a[0])}; break;
         case DrawOp::pixel: target.drawPixel(a[0], a[1], command.color); break;
         case DrawOp::circle: target.drawCircle(a[0], a[1], a[2], command.color); break;
-        case DrawOp::fill_circle: target.fillCircle(a[0], a[1], a[2], command.color); break;
+        case DrawOp::fill_circle: fill_circle(a[0], a[1], a[2], command.color, pattern); break;
         case DrawOp::ellipse: target.drawEllipse(a[0], a[1], a[2], a[3], command.color); break;
         case DrawOp::fill_ellipse: target.fillEllipse(a[0], a[1], a[2], a[3], command.color); break;
         case DrawOp::rect: target.drawRect(a[0], a[1], a[2], a[3], command.color); break;
-        case DrawOp::fill_rect: fill_rect(a[0], a[1], a[2], a[3], command.color); break;
+        case DrawOp::fill_rect: fill_rect(a[0], a[1], a[2], a[3], command.color, pattern); break;
         case DrawOp::line:
             if (a[1] == a[3]) {
                 target.drawFastHLine(std::min(a[0], a[2]), a[1], std::abs(a[2] - a[0]) + 1, command.color);
@@ -61,7 +64,7 @@ void draw_commands(void*)
             }
             break;
         case DrawOp::fill_triangle:
-            fill_triangle(a[0], a[1], a[2], a[3], a[4], a[5], command.color);
+            fill_triangle(a[0], a[1], a[2], a[3], a[4], a[5], command.color, pattern);
             break;
         case DrawOp::sprite:
             draw_sprite(*command.sprite, a[0], a[1], command.transparent, command.flip_x, command.flip_y);
