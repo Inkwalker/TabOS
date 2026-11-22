@@ -1,6 +1,7 @@
 local launch_path = ...
 local Button = require("button")
 local Checkpoint = require("checkpoint")
+local ColorPicker = require("color_picker")
 local History = require("history")
 local KeyboardManager = require("keyboard_manager")
 local Label = require("label")
@@ -13,9 +14,11 @@ local ToolPanel = require("tool_panel")
 local width, height = gfx.width, gfx.height
 local toolbar_height, status_height = 24, 16
 local panel_width = 20
-local workspace_width, workspace_height = width - panel_width, height - toolbar_height - status_height
+local picker_x = width - ColorPicker.width
+local workspace_width, workspace_height = picker_x - panel_width, height - toolbar_height - status_height
 local zoom_out_x, zoom_in_x, zoom_button_width = width - 92, width - 28, 24
 local theme = assert(fs.read_table(os.path("theme.ltab")))
+local palette_path = os.path("palettes/default.png")
 local checkpoint_root = os.path(".recovery")
 local history_tools = {[PenTool.history_id] = PenTool}
 local colors = {}
@@ -25,21 +28,21 @@ for _, name in ipairs({"workspace", "panel", "button", "text", "muted", "accent"
 end
 
 local open_button, save_button, zoom_out_button, zoom_in_button
-local document
-local canvas = SpriteCanvas.new(0, toolbar_height, workspace_width, workspace_height, colors.workspace)
+local document, color_picker
+local canvas = SpriteCanvas.new(panel_width, toolbar_height, workspace_width, workspace_height, colors.workspace)
 local tools = ToolManager.new(canvas, function(tool, payload)
     document.history:record(tool, payload)
 end)
 local pen = PenTool.new(colors.active_color, colors.accent)
 tools:set_active(PanTool)
-local tool_panel = ToolPanel.new({x = workspace_width, y = toolbar_height, width = panel_width, height = workspace_height},
+local tool_panel = ToolPanel.new({x = 0, y = toolbar_height, width = panel_width, height = workspace_height},
     colors, tools, {PanTool, pen})
 local title_x = 104
 local title_label = Label.new(title_x, 8, zoom_out_x - title_x - 4, "Sprite Editor", colors.text)
 local zoom_x = zoom_out_x + zoom_button_width
 local zoom_label = Label.new(zoom_x, 8, zoom_in_x - zoom_x, "", colors.text, "center")
 zoom_label.visible = false
-local hint_label = Label.new(0, toolbar_height + (workspace_height - 8) // 2, workspace_width,
+local hint_label = Label.new(canvas.x, toolbar_height + (workspace_height - 8) // 2, workspace_width,
     "Open a PNG to get started", colors.muted, "center")
 local status_label = Label.new(6, height - 12, width - 10, "Ctrl+O", colors.muted)
 local touch_held = false
@@ -112,6 +115,7 @@ local function draw()
     if document then tools:draw() end
     hint_label:draw()
     tool_panel:draw()
+    color_picker:draw()
 
     gfx.rectfill(0, 0, width, toolbar_height, colors.panel)
     open_button:draw()
@@ -208,6 +212,8 @@ local keyboard = KeyboardManager.new({close = request_close, open = request_open
     zoom = change_zoom, tool_key = tool_key})
 
 function init(saved, explicit_args)
+    color_picker = ColorPicker.new(picker_x, toolbar_height, workspace_height, colors.panel, pen.color, palette_path)
+    pen.color = color_picker:restore(saved and saved.picker)
     local path = explicit_args and os.path(launch_path) or saved and saved.path
     local message
     local view
@@ -240,6 +246,12 @@ function update()
     touch_held = touch ~= nil
     if keyboard:update() then press = nil end
 
+    local color = color_picker:update_touch(touch, press)
+    if color then
+        pen.color = color
+        draw()
+        return
+    end
     if open_button:press(press) or save_button:press(press) then return end
     if tool_panel:press(press) then
         draw()
@@ -251,7 +263,8 @@ function update()
 end
 
 function save_state()
-    if not document then return end
+    local picker = color_picker:save_state()
+    if not document then return picker and {picker = picker} end
     tools:cancel_drag()
     canvas:flush_edits()
     local checkpoint
@@ -266,13 +279,14 @@ function save_state()
         end
     end
     return {path = document.path, zoom = canvas.zoom, pan_x = canvas.pan_x, pan_y = canvas.pan_y,
-        checkpoint = checkpoint, source = checkpoint and document.source,
+        checkpoint = checkpoint, source = checkpoint and document.source, picker = picker,
         cursor_x = pen.x, cursor_y = pen.y, tool = tools.active == pen and "pen" or "pan"}
 end
 
 function deinit()
     tools:cancel_drag()
     tool_panel:close()
+    if color_picker then color_picker:close() end
     canvas:close()
     close_document()
 end
