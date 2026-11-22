@@ -10,7 +10,7 @@ At boot, press **Del** within three seconds to enter recovery shell on the recov
 TabOS loads `/sd/sys/system.lua`, falling back to `/rec/sys/system.lua` if missing or unloadable.
 Exact boot sequence is defined in `/recovery_files/boot.lua`.
 
-This repo includes system scripts and app bundles in `apps/`. After flashing, copy the contents of `apps/sys/` to `/sd/sys/` and the `apps/*.tap` bundle directories to `/sd/apps/`. On an existing installation, keep your `/sd/sys/apps.ltab` preferences and add `files_app = "/sd/apps/files.tap"` to your system config if needed.
+This repo includes system scripts and app bundles in `sd_files/`. After flashing, copy the contents of `sd_files/sys/` to `/sd/sys/` and the `sd_files/*.tap` bundle directories to `/sd/apps/`. On an existing installation, keep your `/sd/sys/apps.ltab` preferences and add `files_app = "/sd/apps/files.tap"` to your system config if needed.
 
 ## Build and flash
 
@@ -56,7 +56,7 @@ settings load the editor-only definitions in `tools/lua/` for `gfx`, `input`, `s
 - `main/` — firmware and Lua bindings.
 - `components/` — local keyboard component.
 - `recovery_files/` — system scripts and widgets in `sys/`, system commands in `sys/bin/`, and the editor app.
-- `apps/` — example scripts and apps.
+- `sd_files/` — example scripts and apps.
 - `docs/` — [Lua API reference](docs/README.md) for `gfx`, `input`, `sys`, `fs`, and `audio`.
 
 ## License

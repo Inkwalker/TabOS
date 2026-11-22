@@ -72,4 +72,4 @@ Relaunching reloads the app and reuses saved arguments unless new ones are suppl
 - Tap a suspended taskbar icon to resume it, suspending the current app if needed. Tap `>` to cycle through overflow pages.
 - Hold a suspended taskbar icon to discard the session, or hold its desktop shortcut and confirm **Forget Session**.
 
-Custom shells can request, check, read, or discard sessions with `runner:suspend()`, `runner:has_session(path)`, `runner:session(path)`, and `runner:forget(path)`. See [Bricks](../apps/bricks.tap/app.lua) for a modular app example.
+Custom shells can request, check, read, or discard sessions with `runner:suspend()`, `runner:has_session(path)`, `runner:session(path)`, and `runner:forget(path)`. See [Bricks](../sd_files/demos/bricks.tap/app.lua) for a modular app example.

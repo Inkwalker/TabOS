@@ -38,4 +38,4 @@ After the boot script finishes, the firmware uses the system's global hooks:
 
 Managed [.tap apps](apps.md) have separate hooks dispatched by either shell using
 the shared recovery app runner. The SD GUI shell uses recovery system modules as
-a fallback, so copying `apps/` to the card is sufficient.
+a fallback. Follow the [SD card setup instructions](../README.md#apps) to deploy the contents of `sd_files/`.
