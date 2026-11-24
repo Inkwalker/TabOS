@@ -19,6 +19,17 @@ local function valid_extension(extension)
     return type(extension) == "string" and extension:match('^%.[^%./\\:*?"<>|%c%s]+$') ~= nil
 end
 
+local function icon_color_key(rgb)
+    if type(rgb) ~= "table" then return end
+    for index = 1, 3 do
+        local value = rgb[index]
+        if type(value) ~= "number" or not math.tointeger(value) or value < 0 or value > 255 then
+            return
+        end
+    end
+    return {rgb[1], rgb[2], rgb[3]}
+end
+
 local function extensions(declared)
     local result = {}
     if declared == nil then return result end
@@ -57,7 +68,8 @@ function Registry.bundle(path, association)
         icon = nil
     end
     return {path = path, name = name, window = manifest.window == true,
-        icon_path = icon and path .. "/" .. icon, extensions = supported}
+        icon_path = icon and path .. "/" .. icon, icon_key = icon and icon_color_key(manifest.icon_key),
+        extensions = supported}
 end
 
 function Registry.new(files_path)

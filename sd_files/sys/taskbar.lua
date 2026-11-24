@@ -1,3 +1,4 @@
+local AppIcon = require("app_icon")
 local Taskbar = {}
 Taskbar.__index = Taskbar
 Taskbar.HOME = {}
@@ -9,8 +10,19 @@ local function contains(item, contact)
 end
 
 function Taskbar.new()
-    return setmetatable({targets = {}, page = 1, held = true,
+    return setmetatable({targets = {}, icons = {}, page = 1, held = true,
         home_icon = assert(gfx.load_sprite("/sd/sys/spr/home.png"))}, Taskbar)
+end
+
+local function close_icons(icons)
+    for _, sprite in pairs(icons) do
+        if sprite then sprite:close() end
+    end
+end
+
+function Taskbar:clear_icons()
+    close_icons(self.icons)
+    self.icons = {}
 end
 
 function Taskbar:reset()
@@ -91,15 +103,22 @@ function Taskbar:draw(apps, runner, colors, active, battery)
     gfx.rectfill(300, 0, 20, 180, colors.panel)
     gfx.line(300, 0, 300, 180, colors.highlight)
     battery.draw(302, 2, colors.text, colors)
+    local visible_icons = {}
     local function icon(app, y, is_active)
         local held = self.pressed and self.pressed.app == app
         gfx.rectfill(300, y, 20, 20, (held or is_active) and colors.pressed or colors.tile)
-        if app.icon then
-            local scale = math.min(16 / app.icon.width, 16 / app.icon.height)
-            local w = math.max(1, math.floor(app.icon.width * scale))
-            local h = math.max(1, math.floor(app.icon.height * scale))
-            gfx.sspr(app.icon, 0, 0, app.icon.width, app.icon.height,
-                300 + math.floor((20 - w) / 2), y + math.floor((20 - h) / 2), w, h)
+        local sprite
+        if app.icon_path then
+            sprite = self.icons[app.icon_path]
+            self.icons[app.icon_path] = nil
+            if sprite == nil then
+                sprite = AppIcon.load(app.icon_path) or false
+            end
+            visible_icons[app.icon_path] = sprite
+        end
+        if sprite then
+            local inset = math.floor((20 - AppIcon.size) / 2)
+            AppIcon.draw(sprite, 300 + inset, y + inset, app.icon_key)
         else
             gfx.print(307, y + 6, app.name:sub(1, 1):upper(), colors.accent)
         end
@@ -113,6 +132,8 @@ function Taskbar:draw(apps, runner, colors, active, battery)
     for index = first, math.min(#running, first + slots - 1) do
         icon(running[index], 20 + (index - first) * 20, index == active_index)
     end
+    close_icons(self.icons)
+    self.icons = visible_icons
     if pages > 1 then
         gfx.print(307, 146, ">", colors.text)
         self.targets[#self.targets + 1] = {y = 140, next_page = true, pages = pages}

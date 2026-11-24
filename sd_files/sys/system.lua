@@ -7,16 +7,12 @@ local config = fs.read_table("/sd/sys/config.ltab") or {}
 local idle = require("idle").new(raw_input, input, config)
 local battery = require("widgets.battery")
 local battery_monitor = require("battery_monitor")
-local apps, targets = {}, {}
-local page = 1
+-- Shortcut metadata also determines taskbar order while the desktop is unloaded.
+local shortcuts = {}
+local desktop
 local message
 local message_age = 0
 local status_elapsed = 0
-local touch_held = true -- Wait for boot/transition contacts to be released.
-local pressed
-local press_elapsed = 0
-local app_menu
-local confirm_forget = false
 local app_frame
 local active_app
 local opened_apps = {}
@@ -27,13 +23,7 @@ local Registry = require("associations")
 local associations = Registry.new(config.files_app)
 local Taskbar = require("taskbar")
 local taskbar = Taskbar.new()
-local desktop_width = 300
 local shortcuts_path = "/sd/sys/shortcuts.ltab"
-local wallpaper_path = config.wallpaper
-local wallpaper
-if type(wallpaper_path) == "string" and wallpaper_path ~= "" and not wallpaper_path:find("%z") then
-    wallpaper = gfx.load_sprite(wallpaper_path)
-end
 
 local colors = {
     background = gfx.rgb(19, 33, 49),
@@ -57,13 +47,6 @@ for name, rgb in pairs(fs.read_table("/sd/sys/theme.ltab") or {}) do
     end
 end
 
-local margin = 8
-local cell_width, cell_height = 70, 54
-local columns = math.floor((desktop_width - margin * 2) / cell_width)
-local rows = math.floor((gfx.height - margin * 2) / cell_height)
-local desktop_slots = columns * rows
-local per_page = desktop_slots
-
 local function show_error(err)
     message = tostring(err)
     message_age = 0
@@ -83,7 +66,7 @@ local function refresh_task_apps()
     local known, extra = {}, {}
     local active_key = active_app and fs.fat_name_key(active_app.path)
     task_apps = {}
-    for _, app in ipairs(apps) do
+    for _, app in ipairs(shortcuts) do
         task_apps[#task_apps + 1] = app
         known[fs.fat_name_key(app.path)] = true
     end
@@ -105,8 +88,9 @@ local function refresh_status()
     return battery_changed
 end
 
-local function page_count()
-    return math.max(1, math.ceil(#apps / per_page))
+local function launcher_entry(app)
+    return {path = app.path, name = app.name, window = app.window,
+        icon_path = app.icon_path, icon_key = app.icon_key}
 end
 
 local function load_shortcuts()
@@ -115,164 +99,22 @@ local function load_shortcuts()
         if not message then show_error(err or ("Cannot read " .. shortcuts_path)) end
         return
     end
-    for _, app in ipairs(apps) do
-        if app.icon then app.icon:close() end
-    end
-    apps = {}
+    taskbar:clear_icons()
+    shortcuts = {}
     local seen = {}
     for _, path in ipairs(paths or {}) do
         local app = Registry.bundle(path)
         local key = app and fs.fat_name_key(app.path)
         if key and not seen[key] then
             seen[key] = true
-            if app.icon_path then
-                app.icon = gfx.load_sprite(app.icon_path)
-                if app.icon and (app.icon.width > 28 or app.icon.height > 28) then
-                    app.icon:close()
-                    app.icon = nil
-                end
-            end
-            apps[#apps + 1] = app
+            shortcuts[#shortcuts + 1] = launcher_entry(app)
         end
     end
-    -- Leave the last cell free for navigation only when the desktop overflows.
-    per_page = #apps > desktop_slots and desktop_slots - 1 or desktop_slots
-    page = math.min(page, page_count())
 end
 
 local function shortened(text, limit)
     if #text <= limit then return text end
     return text:sub(1, math.max(0, limit - 3)) .. "..."
-end
-
-local function centered(x, y, width, text, color)
-    gfx.print(x + math.floor((width - #text * 6) / 2), y, text, color)
-end
-
-local function target(x, y, width, height, action)
-    local item = {x = x, y = y, width = width, height = height, action = action}
-    targets[#targets + 1] = item
-    return item
-end
-
-local function contains(item, x, y)
-    return x >= item.x and x < item.x + item.width
-        and y >= item.y and y < item.y + item.height
-end
-
-local function draw()
-    targets = {}
-    gfx.cls(colors.background)
-    if wallpaper then gfx.spr(wallpaper, 0, 0) end
-    local first = (page - 1) * per_page + 1
-    for index = first, math.min(#apps, first + per_page - 1) do
-        local app = apps[index]
-        local slot = index - first
-        local x = margin + math.floor(slot / rows) * cell_width
-        local y = margin + (slot % rows) * cell_height
-        local width, height = cell_width - 4, cell_height - 4
-        target(x, y, width, height, {app = app})
-        local held = pressed and pressed.action.app == app
-        if held then gfx.rectfill(x, y, width, height, colors.pressed) end
-        local icon_x = x + math.floor((width - 28) / 2)
-        if app.icon then
-            gfx.spr(app.icon, icon_x + math.floor((28 - app.icon.width) / 2),
-                y + 6 + math.floor((28 - app.icon.height) / 2))
-        else
-            gfx.rectfill(icon_x, y + 6, 28, 28, colors.accent)
-            centered(icon_x, y + 16, 28, app.name:sub(1, 1):upper(), colors.background)
-        end
-        local label = shortened(app.name, math.floor((width - 4) / 6))
-        centered(x, y + 42, width, label, colors.text)
-    end
-    if #apps == 0 then
-        centered(0, 74, desktop_width, "No desktop shortcuts", colors.muted)
-        centered(0, 88, desktop_width, "Add apps to " .. shortcuts_path, colors.muted)
-    end
-
-    local pages = page_count()
-    if pages > 1 then
-        local x = margin + (columns - 1) * cell_width
-        local y = margin + rows * cell_height - 24
-        local function page_button(left, label, direction)
-            local enabled = page + direction >= 1 and page + direction <= pages
-            if enabled then target(left, y, 20, 20, {page = direction}) end
-            gfx.rectfill(left, y, 20, 20, colors.panel)
-            centered(left, y + 6, 20, label, enabled and colors.text or colors.muted)
-        end
-        page_button(x, "<", -1)
-        centered(x + 20, y + 6, 30, page .. "/" .. pages, colors.muted)
-        page_button(x + 50, ">", 1)
-    end
-
-    if app_menu then
-        targets = {}
-        local suspended = runner:has_session(app_menu.path)
-        gfx.rectfill(24, 26, desktop_width - 48, 126, colors.panel)
-        gfx.rect(24, 26, desktop_width - 48, 126, colors.accent)
-        gfx.print(32, 34, shortened(app_menu.name, 40), colors.text)
-        local function menu_button(y, label, action)
-            target(32, y, desktop_width - 64, 22, action)
-            gfx.print(40, y + 6, label, colors.text)
-        end
-        if confirm_forget then
-            gfx.print(32, 50, "Forget session? Unsaved work is lost.", colors.error)
-            menu_button(70, "Forget Session", {forget = app_menu})
-            menu_button(118, "Cancel", {cancel_menu = true})
-        else
-            gfx.print(32, 50, suspended and "Suspended" or "Ready", colors.muted)
-            menu_button(70, suspended and "Resume" or "Open", {app = app_menu})
-            if suspended then menu_button(94, "Forget Session...", {confirm_forget = true}) end
-            menu_button(118, "Cancel", {cancel_menu = true})
-        end
-    end
-    if chooser then
-        targets = {}
-        gfx.rectfill(8, 8, 284, 164, colors.panel)
-        gfx.rect(8, 8, 284, 164, colors.accent)
-        gfx.print(16, 16, "Open With", colors.text)
-        local name = chooser.path:match("[^/]+$")
-        gfx.print(16, 29, shortened(name, 44), colors.muted)
-        local first = math.floor((chooser.selected - 1) / 4) * 4 + 1
-        for index = first, math.min(first + 3, #chooser.candidates) do
-            local y = 42 + (index - first) * 20
-            local app = chooser.candidates[index]
-            target(16, y, 268, 20, {candidate = index})
-            if index == chooser.selected then gfx.rectfill(16, y, 268, 20, colors.pressed) end
-            gfx.print(22, y + 6, shortened(app.name, 27), colors.text)
-            gfx.print(191, y + 6, shortened(app.path:match("[^/]+$"), 15), colors.muted)
-        end
-        local function choice(x, y, w, label, action)
-            target(x, y, w, 22, action)
-            centered(x, y + 7, w, label, colors.accent)
-        end
-        if first > 1 then choice(16, 122, 46, "Prev", {candidate = first - 4}) end
-        if first + 4 <= #chooser.candidates then
-            choice(238, 122, 46, "Next", {candidate = first + 4})
-        end
-        centered(62, 129, 176, chooser.selected .. "/" .. #chooser.candidates, colors.muted)
-        choice(16, 144, 90, "Just Once", {open_choice = "once"})
-        choice(106, 144, 88, "Always", {open_choice = "always"})
-        choice(194, 144, 90, "Cancel", {cancel_chooser = true})
-    end
-    if message then
-        targets = {}
-        target(0, 0, desktop_width, gfx.height, {dismiss = true})
-        gfx.rectfill(8, 28, desktop_width - 16, gfx.height - 60, colors.panel)
-        gfx.rect(8, 28, desktop_width - 16, gfx.height - 60, colors.error)
-        gfx.print(16, 36, "Shell message", colors.error)
-        local text = message:gsub("[%c]", " ")
-        local width = math.max(1, math.floor((desktop_width - 32) / 6))
-        local count = math.max(1, math.floor((gfx.height - 108) / 10))
-        for row = 1, count do
-            local line = text:sub((row - 1) * width + 1, row * width)
-            if row == count and #text > row * width then
-                line = shortened(text:sub((row - 1) * width + 1), width)
-            end
-            gfx.print(16, 52 + (row - 1) * 10, line, colors.text)
-        end
-        gfx.print(16, gfx.height - 48, "Tap to dismiss", colors.accent)
-    end
 end
 
 local function release_app_frame()
@@ -286,8 +128,19 @@ local function release_app_frame()
     taskbar:reset()
 end
 
+local function release_desktop()
+    if not desktop then return end
+    desktop:close()
+    desktop = nil
+    -- Reclaim the module and view before allocating the app frame or running app code.
+    package.loaded.desktop = nil
+    collectgarbage("collect")
+end
+
 local function launch_app(app, args)
     release_app_frame()
+    if not app.window then taskbar:clear_icons() end
+    release_desktop()
     message = nil
     local ok, err = pcall(function()
         if app.window then
@@ -295,9 +148,7 @@ local function launch_app(app, args)
             gfx.target(300, 180)
         end
         active_app = app
-        opened_apps[fs.fat_name_key(app.path)] = {
-            path = app.path, name = app.name, window = app.window,
-        }
+        opened_apps[fs.fat_name_key(app.path)] = launcher_entry(app)
         runner:launch(app.path, args)
     end)
     input.reset()
@@ -307,13 +158,17 @@ end
 
 local function restore_shell(refresh_shortcuts)
     release_app_frame()
+    if gfx.width ~= 320 or gfx.height ~= 180 then gfx.target() end
     input.reset()
-    touch_held, pressed = true, nil
-    app_menu, confirm_forget = nil, false
     if refresh_shortcuts then load_shortcuts() end
+    if not desktop then
+        desktop = require("desktop").new(shortcuts, config, colors, runner)
+    end
+    desktop:reset_contact(true)
+    desktop:close_menu()
     refresh_task_apps()
     refresh_status()
-    draw()
+    desktop:draw(chooser, message)
 end
 
 function init()
@@ -408,8 +263,8 @@ end
 
 local function update_system(dt)
     input.update()
-    if idle.update(dt, runner:active()) then
-        touch_held, pressed = true, nil
+    if idle.update(dt, runner:active()) and desktop then
+        desktop:reset_contact(true)
     end
     status_elapsed = status_elapsed + dt
     local dirty = status_elapsed >= 0.5 and refresh_status()
@@ -461,10 +316,9 @@ local function update_system(dt)
         if forget then
             runner:forget(forget.path)
             refresh_task_apps()
-            app_menu, confirm_forget = nil, false
+            desktop:close_menu()
             dirty = true
         elseif selected and selected ~= Taskbar.HOME then
-            app_menu, confirm_forget = nil, false
             launch_app(selected)
             if not runner:active() then restore_shell(not pending_open) end
             return
@@ -472,9 +326,9 @@ local function update_system(dt)
     end
     if chooser and not message then
         if input.keyp(1, 1) then
-            chooser, pressed = nil, nil
-            touch_held = #contacts > 0
-            draw()
+            chooser = nil
+            desktop:reset_contact(#contacts > 0)
+            desktop:draw(chooser, message)
             return
         elseif input.keyp(4, 14) then
             choose_handler(false)
@@ -485,66 +339,29 @@ local function update_system(dt)
             dirty = true
         end
     end
-    contacts = taskbar:app_touch(contacts)
-    if #contacts > 0 then
-        local contact = contacts[1]
-        if not touch_held and #contacts == 1 then
-            for _, item in ipairs(targets) do
-                if contains(item, contact.x, contact.y) then
-                    pressed = item
-                    pressed.id = contact.id
-                    press_elapsed = 0
-                    dirty = true
-                    break
-                end
-            end
-        elseif pressed and (#contacts ~= 1 or contact.id ~= pressed.id
-            or not contains(pressed, contact.x, contact.y)) then
-            pressed = nil
-            dirty = true
-        end
-        if pressed and pressed.action.app and not app_menu then
-            press_elapsed = press_elapsed + dt
-            if press_elapsed >= 0.6 then
-                app_menu = pressed.action.app
-                confirm_forget, pressed = false, nil
-                dirty = true
-            end
-        end
-        touch_held = true
-    else
-        local action = pressed and pressed.action
-        touch_held, pressed = false, nil
-        if action then
-            if action.app then
-                -- Launch on release so the app cannot inherit the launcher tap.
-                launch_app(action.app)
-                if not runner:active() then restore_shell(not pending_open) end
-                return
-            elseif action.confirm_forget then
-                confirm_forget = true
-            elseif action.forget then
-                runner:forget(action.forget.path)
-                refresh_task_apps()
-                app_menu, confirm_forget = nil, false
-            elseif action.cancel_menu then
-                app_menu, confirm_forget = nil, false
-            elseif action.page then
-                page = math.max(1, math.min(page_count(), page + action.page))
-            elseif action.dismiss then
-                message = nil
-            elseif action.candidate then
-                chooser.selected = action.candidate
-            elseif action.cancel_chooser then
-                chooser = nil
-            elseif action.open_choice then
-                choose_handler(action.open_choice == "always")
-                return
-            end
-            dirty = true
+    local action, touched = desktop:update_touch(taskbar:app_touch(contacts), dt)
+    if action then
+        if action.app then
+            -- Launch on release so the app cannot inherit the launcher tap.
+            launch_app(action.app)
+            if not runner:active() then restore_shell(not pending_open) end
+            return
+        elseif action.forget then
+            runner:forget(action.forget.path)
+            refresh_task_apps()
+            desktop:close_menu()
+        elseif action.dismiss then
+            message = nil
+        elseif action.candidate then
+            chooser.selected = action.candidate
+        elseif action.cancel_chooser then
+            chooser = nil
+        elseif action.open_choice then
+            choose_handler(action.open_choice == "always")
+            return
         end
     end
-    if dirty then draw() end
+    if dirty or touched then desktop:draw(chooser, message) end
 end
 
 -- Keep presentation in the OS, after app drawing and any shell overlays.
@@ -571,7 +388,7 @@ function update(dt)
         end
         if message then
             -- Rejection leaves the app alive; show its reason above the app's frame.
-            local width = app_frame and desktop_width or gfx.width
+            local width = app_frame and app_frame.width or gfx.width
             gfx.rectfill(0, 0, width, 16, colors.panel)
             gfx.print(4, 4, shortened(message:gsub("[%c]", " "), math.floor((width - 8) / 6)), colors.error)
         end
