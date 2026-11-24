@@ -50,8 +50,9 @@ function ColorPicker:draw()
     end
 
     local swatch_y = y + palette_height + 3
-    gfx.rect(x, swatch_y, palette_width, 4, 0xffff)
-    gfx.rectfill(x + 1, swatch_y + 1, palette_width - 2, 2, self.color)
+    local swatch_height = self.y + self.height - swatch_y
+    gfx.rect(x, swatch_y, palette_width, swatch_height, 0xffff)
+    gfx.rectfill(x + 1, swatch_y + 1, palette_width - 2, swatch_height - 2, self.color)
 end
 
 function ColorPicker:update_touch(touch, press)

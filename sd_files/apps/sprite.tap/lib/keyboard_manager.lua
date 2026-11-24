@@ -32,7 +32,7 @@ function KeyboardManager:update(dt)
     self.time = self.time + dt
     local text = input.txt()
     if input.keyp(1, 1) then
-        self.actions.close()
+        self.actions.suspend()
         return true
     end
     local control = input.key(5, 1)

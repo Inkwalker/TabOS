@@ -5,7 +5,7 @@ local Label = require("label")
 local FileMenu = {}
 FileMenu.__index = FileMenu
 
-local menu_x = 4
+local menu_x = 0
 local content_x = menu_x + 4
 
 function FileMenu.new(toolbar_height, colors, actions, redraw)
@@ -24,7 +24,7 @@ function FileMenu.new(toolbar_height, colors, actions, redraw)
             end)
     end
     self.entries = entries
-    self.button = IconButton.new(menu_x, 2, 20, 20, icon, {background = colors.button}, function()
+    self.button = IconButton.new(menu_x, 0, 20, 20, icon, {background = colors.button}, function()
         self.popup = entries
     end)
 
@@ -36,7 +36,7 @@ function FileMenu.new(toolbar_height, colors, actions, redraw)
         replace()
         redraw()
     end)
-    prompt.buttons[2] = Button.new(80, toolbar_height + 22, 68, 18, "Cancel", button_colors, function()
+    prompt.buttons[2] = Button.new(content_x + 72, toolbar_height + 22, 68, 18, "Cancel", button_colors, function()
         self:dismiss()
     end)
     self.prompt = prompt

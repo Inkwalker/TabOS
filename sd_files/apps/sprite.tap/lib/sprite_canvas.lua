@@ -2,6 +2,7 @@ local SpriteCanvas = {}
 SpriteCanvas.__index = SpriteCanvas
 
 SpriteCanvas.max_pixels = 65536
+local max_zoom = math.maxinteger // SpriteCanvas.max_pixels
 
 function SpriteCanvas.new(x, y, width, height, background)
     return setmetatable({x = x, y = y, width = width, height = height, background = background}, SpriteCanvas)
@@ -181,7 +182,9 @@ function SpriteCanvas:paint_pixel(x, y, color)
 end
 
 function SpriteCanvas:zoom_by(step)
-    local zoom = math.max(1, self.zoom + step)
+    -- Keep scaled sprite dimensions within Lua's integer range.
+    if step > 0 and self.zoom > max_zoom // 2 then return false end
+    local zoom = step > 0 and self.zoom * 2 or math.max(1, self.zoom // 2)
     if zoom == self.zoom then return false end
     local ratio = zoom / self.zoom
     self.zoom = zoom

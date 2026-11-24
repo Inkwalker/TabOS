@@ -15,12 +15,13 @@ local SpriteCanvas = require("sprite_canvas")
 local ToolManager = require("tool_manager")
 local ToolPanel = require("tool_panel")
 local width, height = gfx.width, gfx.height
-local toolbar_height, status_height = 24, 9
+local toolbar_height, status_height = 20, 10
 local status_y = height - status_height
 local panel_width = 20
 local picker_x = width - ColorPicker.width
 local workspace_width, workspace_height = picker_x - panel_width, status_y - toolbar_height
-local zoom_out_x, zoom_in_x, zoom_button_width = width - 92, width - 28, 24
+local zoom_out_x, zoom_in_x, zoom_button_size = width - 90, width - 26, 20
+local zoom_button_y = (toolbar_height - zoom_button_size) // 2
 local theme = assert(fs.read_table(os.path("theme.ltab")))
 local palette_path = os.path("palettes/default.png")
 local checkpoint_root = os.path(".recovery")
@@ -47,9 +48,10 @@ tools:set_active(PanTool)
 local tool_panel = ToolPanel.new({x = 0, y = toolbar_height, width = panel_width, height = workspace_height},
     colors, tools, {PanTool, pen, pipette})
 local title_x = 32
-local title_label = Label.new(title_x, 8, zoom_out_x - title_x - 4, "Sprite Editor", colors.text)
-local zoom_x = zoom_out_x + zoom_button_width
-local zoom_label = Label.new(zoom_x, 8, zoom_in_x - zoom_x, "", colors.text, "center")
+local toolbar_label_y = (toolbar_height - 8) // 2
+local title_label = Label.new(title_x, toolbar_label_y, zoom_out_x - title_x - 4, "Sprite Editor", colors.text)
+local zoom_x = zoom_out_x + zoom_button_size
+local zoom_label = Label.new(zoom_x, toolbar_label_y, zoom_in_x - zoom_x, "", colors.text, "center")
 zoom_label.visible = false
 local hint_label = Label.new(canvas.x, toolbar_height + (workspace_height - 8) // 2, workspace_width,
     "Create a sprite or open a PNG", colors.muted, "center")
@@ -276,9 +278,11 @@ new_sprite_dialog = NewSpriteDialog.new(toolbar_height, colors, create_image, dr
 menu = FileMenu.new(toolbar_height, colors,
     {new_sprite = function() new_sprite_dialog:show() end, open = request_open, save = request_save,
         save_as = request_save_as, exit = request_close}, draw)
-zoom_out_button = Button.new(zoom_out_x, 3, zoom_button_width, 18, "-", button_colors, function() change_zoom(-1) end)
-zoom_in_button = Button.new(zoom_in_x, 3, zoom_button_width, 18, "+", button_colors, function() change_zoom(1) end)
-local keyboard = KeyboardManager.new({close = request_close, open = request_open, save = request_save,
+zoom_out_button = Button.new(zoom_out_x, zoom_button_y, zoom_button_size, zoom_button_size,
+    "-", button_colors, function() change_zoom(-1) end)
+zoom_in_button = Button.new(zoom_in_x, zoom_button_y, zoom_button_size, zoom_button_size,
+    "+", button_colors, function() change_zoom(1) end)
+local keyboard = KeyboardManager.new({suspend = os.suspend, open = request_open, save = request_save,
     undo = function() step_history(true) end, redo = function() step_history(false) end,
     zoom = change_zoom, tool_key = tool_key})
 
