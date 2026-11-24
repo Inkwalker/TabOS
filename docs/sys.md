@@ -13,7 +13,15 @@
 | `sys.sram()` | Return `used, total` bytes of byte-addressable internal heap. |
 | `sys.psram()` | Return `used, total` bytes of byte-addressable external heap. |
 | `sys.cpu_load()` | Return one utilization percentage per core in core order, measured since the previous call. The first call returns `nil`. Sampling failure raises an error. |
-| `sys.bat_lvl()` | Return the battery percentage as an integer, or `nil` if unavailable. |
-| `sys.bat_chrg()` | Return whether the battery is charging, or `nil` if the status is unknown. |
+| `sys.bat()` | Return a battery status table containing `percent`, `charging`, `current`, and `voltage`. |
 | `sys.get_time()` | Return the system clock as integer Unix seconds. |
 | `sys.set_time(timestamp)` | Set the hardware RTC and system clock from integer Unix seconds in UTC years 2000–2099. Returns no values and raises an error on failure. |
+
+## Battery status
+
+| Field | Value |
+| --- | --- |
+| `percent` | Charge level from `0.0` (empty) to `1.0` (full), or `nil` if unavailable. |
+| `charging` | `true` while charging, `false` otherwise, or `nil` if unknown. |
+| `current` | Signed integer milliamps. Positive means charging and negative means discharging. |
+| `voltage` | Battery bus voltage in integer millivolts. |

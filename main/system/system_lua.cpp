@@ -1,6 +1,8 @@
 #include "system.hpp"
 
+#include <algorithm>
 #include <array>
+#include <cstdint>
 #include <cstdio>
 
 #include "M5Unified.h"
@@ -122,25 +124,26 @@ int cpu_load(lua_State* state)
     return configNUMBER_OF_CORES;
 }
 
-int battery_level(lua_State* state)
+int battery_status(lua_State* state)
 {
-    const auto level = M5.Power.getBatteryLevel();
-    if (level < 0) {
-        lua_pushnil(state);
-    } else {
-        lua_pushinteger(state, level);
-    }
-    return 1;
-}
+    lua_createtable(state, 0, 4);
 
-int is_charging(lua_State* state)
-{
-    const auto status = M5.Power.isCharging();
-    if (status == m5::Power_Class::charge_unknown) {
-        lua_pushnil(state);
-    } else {
-        lua_pushboolean(state, status == m5::Power_Class::is_charging);
+    const auto level = M5.Power.getBatteryLevel();
+    if (level >= 0) {
+        lua_pushnumber(state, std::min<std::int32_t>(level, 100) / 100.0);
+        lua_setfield(state, -2, "percent");
     }
+
+    const auto status = M5.Power.isCharging();
+    if (status != m5::Power_Class::charge_unknown) {
+        lua_pushboolean(state, status == m5::Power_Class::is_charging);
+        lua_setfield(state, -2, "charging");
+    }
+
+    lua_pushinteger(state, M5.Power.getBatteryCurrent());
+    lua_setfield(state, -2, "current");
+    lua_pushinteger(state, M5.Power.getBatteryVoltage());
+    lua_setfield(state, -2, "voltage");
     return 1;
 }
 
@@ -227,8 +230,7 @@ int push_system_table(lua_State* state)
         {"sram", sram},
         {"psram", psram},
         {"cpu_load", cpu_load},
-        {"bat_lvl", battery_level},
-        {"bat_chrg", is_charging},
+        {"bat", battery_status},
         {"shutdown", shutdown},
         {"sleep", sleep},
         {"wait", wait},

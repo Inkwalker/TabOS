@@ -11,9 +11,9 @@ local defaults = {
 }
 
 function battery.refresh()
-    local new_level = sys.bat_lvl()
-    new_level = new_level and math.min(100, math.max(0, new_level))
-    local new_charging = sys.bat_chrg()
+    local status = sys.bat()
+    local new_level = status.percent and math.floor(status.percent * 100 + 0.5)
+    local new_charging = status.charging
 
     local changed = new_level ~= level or new_charging ~= charging
     level, charging = new_level, new_charging
