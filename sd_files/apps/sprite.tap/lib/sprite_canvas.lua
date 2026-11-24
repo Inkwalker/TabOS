@@ -1,7 +1,7 @@
 local SpriteCanvas = {}
 SpriteCanvas.__index = SpriteCanvas
 
-local max_target_pixels = 65536
+SpriteCanvas.max_pixels = 65536
 
 function SpriteCanvas.new(x, y, width, height, background)
     return setmetatable({x = x, y = y, width = width, height = height, background = background}, SpriteCanvas)
@@ -141,7 +141,7 @@ function SpriteCanvas:edit_pixels(paint)
 end
 
 function SpriteCanvas:set_sprite(image, zoom, pan_x, pan_y)
-    if image.width * image.height > max_target_pixels then
+    if image.width * image.height > SpriteCanvas.max_pixels then
         return nil, "PNG exceeds the 65,536-pixel canvas limit"
     end
     if not self.preview then

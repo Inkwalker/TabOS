@@ -6,6 +6,7 @@ local FileMenu = require("file_menu")
 local History = require("history")
 local KeyboardManager = require("keyboard_manager")
 local Label = require("label")
+local NewSpriteDialog = require("new_sprite_dialog")
 local PanTool = require("pan_tool")
 local PenTool = require("pen_tool")
 local PipetteTool = require("pipette_tool")
@@ -23,6 +24,7 @@ local zoom_out_x, zoom_in_x, zoom_button_width = width - 92, width - 28, 24
 local theme = assert(fs.read_table(os.path("theme.ltab")))
 local palette_path = os.path("palettes/default.png")
 local checkpoint_root = os.path(".recovery")
+local untitled_name = "Untitled.png"
 local history_tools = {[PenTool.history_id] = PenTool}
 local colors = {}
 for _, name in ipairs({"workspace", "panel", "button", "text", "muted", "accent", "error", "active_color"}) do
@@ -30,7 +32,7 @@ for _, name in ipairs({"workspace", "panel", "button", "text", "muted", "accent"
     colors[name] = gfx.rgb(rgb[1], rgb[2], rgb[3])
 end
 
-local menu, zoom_out_button, zoom_in_button
+local menu, new_sprite_dialog, zoom_out_button, zoom_in_button
 local document, color_picker
 local canvas = SpriteCanvas.new(panel_width, toolbar_height, workspace_width, workspace_height, colors.workspace)
 local tools = ToolManager.new(canvas, function(tool, payload)
@@ -50,7 +52,7 @@ local zoom_x = zoom_out_x + zoom_button_width
 local zoom_label = Label.new(zoom_x, 8, zoom_in_x - zoom_x, "", colors.text, "center")
 zoom_label.visible = false
 local hint_label = Label.new(canvas.x, toolbar_height + (workspace_height - 8) // 2, workspace_width,
-    "Open a PNG to get started", colors.muted, "center")
+    "Create a sprite or open a PNG", colors.muted, "center")
 local status_label = Label.new(6, status_y + (status_height - 8) // 2, width - 10, "Ctrl+O", colors.muted)
 local touch_held = false
 
@@ -77,22 +79,8 @@ local function close_document()
     document = nil
 end
 
-local function open_image(path, view)
-    view = view or {}
-    local image, history, source, err
-    if view.checkpoint then
-        image, history = Checkpoint.read(checkpoint_root, view.checkpoint, history_tools)
-        if not image then return nil, history end
-        source = view.source
-    else
-        source = fs.stat(path)
-        image, err = gfx.load_sprite(path)
-        if not image then return nil, err end
-        history = History.new(history_tools)
-    end
-
-    local ready
-    ready, err = canvas:set_sprite(image, view.zoom, view.pan_x, view.pan_y)
+local function set_document(path, source, image, history, view)
+    local ready, err = canvas:set_sprite(image, view.zoom, view.pan_x, view.pan_y)
     if not ready then
         image:close()
         return nil, err
@@ -110,10 +98,39 @@ local function open_image(path, view)
     document = {path = path, source = source, image = image, history = history}
     pen:reset(canvas, view.cursor_x, view.cursor_y)
     pipette.cursor:reset(canvas, view.pipette_x, view.pipette_y)
-    title_label:set_text(path:match("[^/]+$") or "Sprite Editor")
+    title_label:set_text(path and path:match("[^/]+$") or "Untitled")
     hint_label.visible = false
     zoom_label.visible = true
     update_zoom_label()
+    return true
+end
+
+local function open_image(path, view)
+    view = view or {}
+    if view.checkpoint then
+        local image, history = Checkpoint.read(checkpoint_root, view.checkpoint, history_tools)
+        if not image then return nil, history end
+        return set_document(path, view.source, image, history, view)
+    end
+
+    local source = fs.stat(path)
+    local image, err = gfx.load_sprite(path)
+    if not image then return nil, err end
+    return set_document(path, source, image, History.new(history_tools), view)
+end
+
+local function create_image(sprite_width, sprite_height)
+    if sprite_width * sprite_height > SpriteCanvas.max_pixels then
+        return nil, "Maximum size is 65,536 pixels"
+    end
+    local image, err = gfx.create_sprite(sprite_width, sprite_height)
+    if not image then return nil, err end
+    local history = History.new(history_tools)
+    history:mark_dirty()
+    local ready
+    ready, err = set_document(nil, nil, image, history, {})
+    if not ready then return nil, err end
+    update_status()
     return true
 end
 
@@ -136,6 +153,7 @@ local function draw()
     status_label:draw()
 
     menu:draw()
+    new_sprite_dialog:draw()
 end
 
 local function request_file(options, on_selected)
@@ -145,7 +163,8 @@ local function request_file(options, on_selected)
         draw()
         return
     end
-    options.directory = document and document.path:match("^(.+)/[^/]+$") or "/sd"
+    local path = document and document.path
+    options.directory = path and path:match("^(.+)/[^/]+$") or "/sd"
     local queued, err = os.file_dialog(options, function(path, detail)
         if path then
             on_selected(path)
@@ -180,22 +199,11 @@ local function save_image(path, source, create)
     update_status(message or "Saved", colors.accent)
 end
 
-local function request_save()
-    if not document then return end
-    tools:cancel_drag()
-    if not document.history:is_dirty() then
-        update_status("No changes to save", colors.muted)
-    else
-        save_image(document.path, document.source)
-    end
-    draw()
-end
-
 local function request_save_as()
     if not document then return end
-    local name = document.path:match("[^/]+$")
+    local name = document.path and document.path:match("[^/]+$") or untitled_name
     request_file({mode = "save", root = "/sd", name = name}, function(path)
-        if fs.fat_name_key(path) == fs.fat_name_key(document.path) then
+        if document.path and fs.fat_name_key(path) == fs.fat_name_key(document.path) then
             save_image(path, document.source)
             return
         end
@@ -213,6 +221,18 @@ local function request_save_as()
             update_status(err or "Cannot check save destination")
         end
     end)
+end
+
+local function request_save()
+    if not document then return end
+    if not document.path then return request_save_as() end
+    tools:cancel_drag()
+    if not document.history:is_dirty() then
+        update_status("No changes to save", colors.muted)
+    else
+        save_image(document.path, document.source)
+    end
+    draw()
 end
 
 local function step_history(undo)
@@ -244,8 +264,10 @@ local function request_close()
 end
 
 local button_colors = {background = colors.button, text = colors.accent, disabled_text = colors.muted}
+new_sprite_dialog = NewSpriteDialog.new(toolbar_height, colors, create_image, draw)
 menu = FileMenu.new(toolbar_height, colors,
-    {open = request_open, save = request_save, save_as = request_save_as, exit = request_close}, draw)
+    {new_sprite = function() new_sprite_dialog:show() end, open = request_open, save = request_save,
+        save_as = request_save_as, exit = request_close}, draw)
 zoom_out_button = Button.new(zoom_out_x, 3, zoom_button_width, 18, "-", button_colors, function() change_zoom(-1) end)
 zoom_in_button = Button.new(zoom_in_x, 3, zoom_button_width, 18, "+", button_colors, function() change_zoom(1) end)
 local keyboard = KeyboardManager.new({close = request_close, open = request_open, save = request_save,
@@ -255,19 +277,20 @@ local keyboard = KeyboardManager.new({close = request_close, open = request_open
 function init(saved, explicit_args)
     color_picker = ColorPicker.new(picker_x, toolbar_height, workspace_height, colors.panel, pen.color, palette_path)
     pen.color = color_picker:restore(saved and saved.picker)
-    local path = explicit_args and os.path(launch_path) or saved and saved.path
+    local saved_path = saved and saved.path
+    local path = explicit_args and os.path(launch_path) or saved_path
     local message
     local view
-    if path and saved and saved.path and fs.fat_name_key(path) == fs.fat_name_key(saved.path) then
+    if not explicit_args or (path and saved_path and fs.fat_name_key(path) == fs.fat_name_key(saved_path)) then
         view = saved
     end
-    if path then
+    if path or (view and view.checkpoint) then
         local opened
         opened, message = open_image(path, view)
-        if not opened and not view and saved and saved.path then
+        if not opened and not view and saved and (saved_path or saved.checkpoint) then
             view = saved
             local detail
-            opened, detail = open_image(saved.path, saved)
+            opened, detail = open_image(saved_path, saved)
             if not opened and saved.checkpoint then message = detail end
         end
         if not opened and view and view.checkpoint then
@@ -288,6 +311,7 @@ function update()
     local touch = contacts[1]
     local press = not touch_held and touch or nil
     touch_held = touch ~= nil
+    if new_sprite_dialog:update(press) then return end
     if menu:update_popup(press) then return end
     if keyboard:update() then press = nil end
     if menu:press(press, document ~= nil) then

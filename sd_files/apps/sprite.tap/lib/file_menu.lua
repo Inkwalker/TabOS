@@ -13,8 +13,9 @@ function FileMenu.new(toolbar_height, colors, actions, redraw)
     local self = setmetatable({icon = icon, y = toolbar_height, colors = colors, redraw = redraw}, FileMenu)
     local button_colors = {background = colors.button, text = colors.accent, disabled_text = colors.muted}
 
-    local entries = {width = 84, height = 88, buttons = {}}
-    for index, entry in ipairs({{"Open", actions.open}, {"Save", actions.save},
+    local entries = {width = 84, height = 108, buttons = {}}
+    for index, entry in ipairs({{"New Sprite", actions.new_sprite},
+        {"Open", actions.open}, {"Save", actions.save},
         {"Save As", actions.save_as}, {"Exit", actions.exit}}) do
         entries.buttons[index] = Button.new(content_x, toolbar_height + 4 + (index - 1) * 20, 76, 18,
             entry[1], button_colors, function()
@@ -39,6 +40,7 @@ function FileMenu.new(toolbar_height, colors, actions, redraw)
         self:dismiss()
     end)
     self.prompt = prompt
+
     return self
 end
 
@@ -54,8 +56,8 @@ end
 
 function FileMenu:press(touch, can_save)
     if not self.button:press(touch) then return false end
-    self.entries.buttons[2].enabled = can_save
     self.entries.buttons[3].enabled = can_save
+    self.entries.buttons[4].enabled = can_save
     return true
 end
 
