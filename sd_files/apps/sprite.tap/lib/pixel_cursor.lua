@@ -33,7 +33,8 @@ end
 function PixelCursor:move(canvas, key)
     local delta = arrows[key]
     if not delta then return false end
-    local x, y = canvas:clamp_pixel(self.x + delta[1], self.y + delta[2])
+    local x = (self.x + delta[1]) % canvas.image.width
+    local y = (self.y + delta[2]) % canvas.image.height
     if x == self.x and y == self.y then return false end
     self.x, self.y = x, y
     canvas:reveal_pixel(x, y)

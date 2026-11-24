@@ -1,5 +1,4 @@
--- Paint callbacks can return a packed history payload alongside their redraw flag.
--- end_drag returns only the payload for the completed gesture.
+-- Tool callbacks can return a redraw flag followed by a packed history payload.
 local ToolManager = {}
 ToolManager.__index = ToolManager
 
@@ -15,7 +14,11 @@ function ToolManager:cancel_drag()
     if not self.contact then return end
     self.contact = nil
     local tool = self.active
-    if tool.end_drag then self:commit(tool, tool:end_drag(self.canvas)) end
+    if tool.end_drag then
+        local redraw, payload = tool:end_drag(self.canvas)
+        self:commit(tool, payload)
+        return redraw
+    end
 end
 
 function ToolManager:set_active(tool)
@@ -45,7 +48,7 @@ function ToolManager:update_touch(contacts, press)
                 return
             end
         end
-        self:cancel_drag()
+        return self:cancel_drag()
     elseif press and canvas:contains(press.x, press.y) then
         self.contact = press
         if tool.begin_drag then

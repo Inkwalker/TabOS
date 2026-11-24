@@ -237,11 +237,12 @@ end
 
 local function step_history(undo)
     if not document then return end
-    tools:cancel_drag()
+    local redraw = tools:cancel_drag()
     if document.history:step(canvas, undo) then
         update_status()
-        draw()
+        redraw = true
     end
+    if redraw then draw() end
 end
 
 local function change_zoom(step)
@@ -253,9 +254,16 @@ local function change_zoom(step)
     end
 end
 
-local function tool_key(key)
-    if key == "`" then tools:cancel_drag() end
-    if document and tools:key_pressed(key) then draw() end
+local function tool_key(key, draw_after_move)
+    local redraw = key == "`" and tools:cancel_drag()
+    if document and tools:key_pressed(key) then
+        if draw_after_move and tools.active == pen then
+            tools:cancel_drag()
+            tools:key_pressed("`")
+        end
+        redraw = true
+    end
+    if redraw then draw() end
 end
 
 local function request_close()
@@ -306,14 +314,16 @@ function init(saved, explicit_args)
     Checkpoint.clear(checkpoint_root)
 end
 
-function update()
+function update(dt)
     local contacts = input.touch()
     local touch = contacts[1]
     local press = not touch_held and touch or nil
     touch_held = touch ~= nil
-    if new_sprite_dialog:update(press) then return end
-    if menu:update_popup(press) then return end
-    if keyboard:update() then press = nil end
+    if new_sprite_dialog:update(press) or menu:update_popup(press) then
+        keyboard:reset_repeat()
+        return
+    end
+    if keyboard:update(dt) then press = nil end
     if menu:press(press, document ~= nil) then
         tools:cancel_drag()
         draw()

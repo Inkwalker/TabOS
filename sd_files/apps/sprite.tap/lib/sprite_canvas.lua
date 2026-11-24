@@ -36,10 +36,14 @@ function SpriteCanvas:clamp_pixel(x, y)
     return math.max(0, math.min(self.image.width - 1, x)), math.max(0, math.min(self.image.height - 1, y))
 end
 
+function SpriteCanvas:pixel_coordinates(x, y)
+    local left, top = sprite_origin(self)
+    return (x - left) // self.zoom, (y - top) // self.zoom
+end
+
 function SpriteCanvas:pixel_at(x, y, nearest)
     if not self.image or not self:contains(self.x + x, self.y + y) then return end
-    local left, top = sprite_origin(self)
-    local px, py = (x - left) // self.zoom, (y - top) // self.zoom
+    local px, py = self:pixel_coordinates(x, y)
     local clamped_x, clamped_y = self:clamp_pixel(px, py)
     if nearest or (px == clamped_x and py == clamped_y) then return clamped_x, clamped_y end
 end
@@ -71,6 +75,12 @@ local function visible_span(size, extent, scale, pan)
     local first = math.max(0, -offset // scale)
     local last = math.min(size - 1, (extent - 1 - offset) // scale)
     return first, last - first + 1, offset + first * scale
+end
+
+function SpriteCanvas:visible_pixel_bounds()
+    local x, width = visible_span(self.image.width, self.width, self.zoom, self.pan_x)
+    local y, height = visible_span(self.image.height, self.height, self.zoom, self.pan_y)
+    return x, y, x + width, y + height
 end
 
 local function edit_image(image, paint)

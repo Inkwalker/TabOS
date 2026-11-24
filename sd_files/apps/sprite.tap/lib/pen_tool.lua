@@ -11,7 +11,7 @@ function PenTool.new(color, cursor_color)
 end
 
 function PenTool:reset(canvas, x, y)
-    self.stroke, self.stroke_x, self.stroke_y = nil, nil, nil
+    self.stroke, self.touch_x, self.touch_y = nil, nil, nil
     self.cursor:reset(canvas, x, y)
 end
 
@@ -19,21 +19,28 @@ function PenTool:activate(canvas)
     self.cursor:activate(canvas)
 end
 
+local function cursor_hidden(pen, canvas)
+    return pen.touch_x ~= nil and canvas:pixel_at(pen.touch_x, pen.touch_y) == nil
+end
+
 function PenTool:draw(canvas)
-    self.cursor:draw(canvas)
+    if not cursor_hidden(self, canvas) then self.cursor:draw(canvas) end
 end
 
 local function paint_line(canvas, x, y, end_x, end_y, color, stroke)
+    local left, top, right, bottom = canvas:visible_pixel_bounds()
     local dx, dy = math.abs(end_x - x), -math.abs(end_y - y)
     local step_x, step_y = x < end_x and 1 or -1, y < end_y and 1 or -1
     local error = dx + dy
     local changed = false
     while true do
-        local painted, before, index = canvas:paint_pixel(x, y, color)
-        if painted then
-            local mask = (stroke[index] or 0) ~ before ~ color
-            stroke[index] = mask ~= 0 and mask or nil
-            changed = true
+        if x >= left and x < right and y >= top and y < bottom then
+            local painted, before, index = canvas:paint_pixel(x, y, color)
+            if painted then
+                local mask = (stroke[index] or 0) ~ before ~ color
+                stroke[index] = mask ~= 0 and mask or nil
+                changed = true
+            end
         end
         if x == end_x and y == end_y then return changed end
         local twice_error = 2 * error
@@ -47,18 +54,17 @@ local function paint_line(canvas, x, y, end_x, end_y, color, stroke)
 end
 
 local function paint_touch(pen, canvas, x, y)
-    local px, py = canvas:pixel_at(x, y)
-    if not px then
-        pen.stroke_x, pen.stroke_y = nil, nil
-        return false
-    end
-    local cursor = pen.cursor
-    local moved = cursor.x ~= px or cursor.y ~= py
-    local changed = paint_line(canvas, pen.stroke_x or px, pen.stroke_y or py, px, py, pen.color, pen.stroke)
-    cursor.x, cursor.y = px, py
-    pen.stroke_x, pen.stroke_y = px, py
+    local was_hidden = cursor_hidden(pen, canvas)
+    local previous_x, previous_y = canvas:pixel_coordinates(pen.touch_x or x, pen.touch_y or y)
+    local px, py = canvas:pixel_coordinates(x, y)
+    local changed = paint_line(canvas, previous_x, previous_y, px, py, pen.color, pen.stroke)
+    pen.touch_x, pen.touch_y = x, y
     if changed then canvas:render() end
-    return changed or moved
+    local cursor_x, cursor_y = canvas:pixel_at(x, y)
+    local cursor = pen.cursor
+    local moved = cursor_x ~= nil and (cursor.x ~= cursor_x or cursor.y ~= cursor_y)
+    if moved then cursor.x, cursor.y = cursor_x, cursor_y end
+    return changed or moved or was_hidden ~= (cursor_x == nil)
 end
 
 function PenTool:begin_drag(canvas, x, y)
@@ -70,10 +76,11 @@ function PenTool:drag(canvas, motion)
     return paint_touch(self, canvas, motion.x, motion.y)
 end
 
-function PenTool:end_drag()
+function PenTool:end_drag(canvas)
+    local redraw = cursor_hidden(self, canvas)
     local stroke = self.stroke
-    self.stroke, self.stroke_x, self.stroke_y = nil, nil, nil
-    if not stroke or not next(stroke) then return end
+    self.stroke, self.touch_x, self.touch_y = nil, nil, nil
+    if not stroke or not next(stroke) then return redraw end
     local chunks, parts = {}, {}
     for index, mask in pairs(stroke) do
         parts[#parts + 1] = string.pack(pixel_record, index, mask)
@@ -83,7 +90,7 @@ function PenTool:end_drag()
         end
     end
     chunks[#chunks + 1] = table.concat(parts)
-    return table.concat(chunks)
+    return redraw, table.concat(chunks)
 end
 
 function PenTool:key_pressed(canvas, key)
