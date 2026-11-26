@@ -9,16 +9,16 @@ local battery = require("widgets.battery")
 local battery_monitor = require("battery_monitor")
 -- Shortcut metadata also determines taskbar order while the desktop is unloaded.
 local shortcuts = {}
-local desktop
-local message
-local message_age = 0
+local desktop, launcher_touch, launcher_surface, launcher_dialog
+local dialogs = require("lib.dialog_manager").new()
+local notification
+local notification_age = 0
 local status_elapsed = 0
 local app_frame
 local active_app
 local opened_apps = {}
 local task_apps = {}
-local chooser, pending_open
-local file_dialog, pending_file_dialog
+local pending_open
 local Registry = require("associations")
 local associations = Registry.new(config.files_app)
 local Taskbar = require("taskbar")
@@ -47,19 +47,34 @@ for name, rgb in pairs(fs.read_table("/sd/sys/theme.ltab") or {}) do
     end
 end
 
+local function open_message(text)
+    dialogs:push(require("lib.dialogs.message").new(text, colors), "launcher")
+end
+
+local runner
 local function show_error(err)
-    message = tostring(err)
-    message_age = 0
+    if runner and runner:active() then
+        notification = tostring(err)
+        notification_age = 0
+    else
+        open_message(tostring(err))
+    end
 end
 
 local app_input = setmetatable({touch = function()
     local contacts = raw_input.touch()
     return app_frame and taskbar:app_touch(contacts) or contacts
 end}, {__index = raw_input})
-local runner = require("app_runner").new(app_input, show_error, {
+runner = require("app_runner").new(app_input, show_error, {
     open = function(request) pending_open = request end,
     refresh = function() return associations:refresh() end,
-    file_dialog = function(request) pending_file_dialog = request end,
+    file_dialog = function(request)
+        taskbar:reset()
+        local picker = require("lib.dialogs.file_dialog").new(config, request, {
+            input = app_input, colors = colors, capture = not app_frame,
+        })
+        dialogs:push(picker, "app")
+    end,
 })
 
 local function refresh_task_apps()
@@ -96,7 +111,9 @@ end
 local function load_shortcuts()
     local paths, err, code = fs.read_table(shortcuts_path)
     if not paths and code ~= 2 then
-        if not message then show_error(err or ("Cannot read " .. shortcuts_path)) end
+        local text = err or ("Cannot read " .. shortcuts_path)
+        local dialog = dialogs:top("launcher")
+        if not dialog or dialog.text ~= text then show_error(text) end
         return
     end
     taskbar:clear_icons()
@@ -118,7 +135,10 @@ local function shortened(text, limit)
 end
 
 local function release_app_frame()
-    pending_file_dialog = nil
+    while dialogs:top("app") do
+        local dialog = dialogs:pop("app")
+        if dialog.close then dialog:close() end
+    end
     if app_frame then
         gfx.target()
         app_frame:close()
@@ -131,9 +151,17 @@ end
 local function release_desktop()
     if not desktop then return end
     desktop:close()
-    desktop = nil
+    launcher_touch:reset(true)
+    desktop, launcher_touch, launcher_surface, launcher_dialog = nil, nil, nil, nil
     -- Reclaim the module and view before allocating the app frame or running app code.
     package.loaded.desktop = nil
+    package.loaded["lib.shortcut_view"] = nil
+    package.loaded["lib.launcher_touch"] = nil
+    if not dialogs:top("launcher") then
+        for _, name in ipairs({"app_menu", "session_confirmation", "open_with", "message"}) do
+            package.loaded["lib.dialogs." .. name] = nil
+        end
+    end
     collectgarbage("collect")
 end
 
@@ -141,7 +169,7 @@ local function launch_app(app, args)
     release_app_frame()
     if not app.window then taskbar:clear_icons() end
     release_desktop()
-    message = nil
+    notification = nil
     local ok, err = pcall(function()
         if app.window then
             app_frame = assert(gfx.create_sprite(300, 180))
@@ -156,19 +184,45 @@ local function launch_app(app, args)
     if not ok then show_error(err) end
 end
 
+local function draw_taskbar()
+    taskbar:draw(task_apps, runner, colors, active_app, battery)
+end
+
+local function draw_launcher()
+    local dialog = dialogs:top("launcher")
+    if dialog ~= launcher_dialog then
+        local held = #input.touch() > 0
+        launcher_touch:reset(held)
+        taskbar:reset(held)
+        launcher_dialog = dialog
+    end
+    local pressed = launcher_touch.pressed
+    local shortcut_targets = desktop:draw(pressed and pressed.action.app)
+    if dialog then
+        draw_taskbar()
+        launcher_surface = dialogs:draw("launcher") or {}
+    else
+        launcher_surface = shortcut_targets
+    end
+end
+
 local function restore_shell(refresh_shortcuts)
     release_app_frame()
     if gfx.width ~= 320 or gfx.height ~= 180 then gfx.target() end
     input.reset()
+    if notification then
+        open_message(notification)
+        notification = nil
+    end
     if refresh_shortcuts then load_shortcuts() end
     if not desktop then
-        desktop = require("desktop").new(shortcuts, config, colors, runner)
+        desktop = require("desktop").new(shortcuts, config, colors)
+        launcher_touch = require("lib.launcher_touch").new()
     end
-    desktop:reset_contact(true)
-    desktop:close_menu()
+    launcher_touch:reset(true)
     refresh_task_apps()
     refresh_status()
-    desktop:draw(chooser, message)
+    draw_launcher()
 end
 
 function init()
@@ -179,10 +233,9 @@ end
 local function open_result(result, err)
     if result and result.app then
         launch_app(result.app, result.args)
-        if result.warning and not message then show_error(result.warning) end
+        if result.warning and not notification then show_error(result.warning) end
     elseif result then
-        chooser = result
-        chooser.selected = 1
+        dialogs:push(require("lib.dialogs.open_with").new(result, colors), "launcher")
     else
         show_error(err)
     end
@@ -191,80 +244,66 @@ end
 local function process_open()
     local request = pending_open
     pending_open = nil
-    message = nil
+    notification = nil
     open_result(associations:resolve(request))
 end
 
-local function choose_handler(always)
-    local request = chooser
-    chooser = nil
+local function choose_handler(dialog, always)
+    local request = dialog.request
+    dialogs:pop("launcher")
     open_result(associations:choose(request.path, request.extension,
-        request.candidates[request.selected], always))
+        request.candidates[dialog.selected], always))
     if not runner:active() then restore_shell() end
 end
 
-local function finish_file_dialog(path, err)
-    local dialog = file_dialog
-    file_dialog = nil
-    if dialog.picker then
-        local ok, detail = pcall(dialog.picker.close, dialog.picker)
-        if not ok then path, err = nil, err or tostring(detail) end
+local function update_file_dialog(dialog, dt)
+    local done, path, err = dialog:update(dt)
+    if done then
+        dialogs:pop("app")
+        path, err = dialog:close(path, err)
+        taskbar:reset()
+        input.reset()
+        runner:complete_file_dialog(dialog.callback, path, err)
     end
-    local frame = dialog.frame
-    if frame then
-        gfx.target(frame.width, frame.height)
-        gfx.spr(frame, 0, 0)
-        frame:close()
-    end
-    input.reset()
-    runner:complete_file_dialog(dialog.callback, path, err)
 end
 
-local function start_file_dialog(request)
-    local dialog = {callback = request.callback, input = Gate.new(app_input)}
-    file_dialog = dialog
-    local ok, picker = pcall(function()
-        if not app_frame then
-            local frame = assert(gfx.create_sprite(gfx.width, gfx.height))
-            local captured, err = pcall(gfx.flip, frame)
-            if not captured then
-                frame:close()
-                error(err, 0)
-            end
-            dialog.frame = frame
-        end
-        return require("file_dialog")(config, request.options, {
-            input = dialog.input, colors = colors, width = gfx.width, height = gfx.height,
-        })
-    end)
-    if ok then dialog.picker = picker else finish_file_dialog(nil, tostring(picker)) end
+local function open_session_confirmation(app, operation, scope, parent)
+    local confirmation = require("lib.dialogs.session_confirmation").new(app, colors, operation, parent)
+    dialogs:push(confirmation, scope)
 end
 
-local function update_file_dialog(dt, switch_to)
-    local dialog = file_dialog
-    dialog.input.refresh()
-    if switch_to or dialog.input.keyp(1, 1) then
-        finish_file_dialog()
-    elseif dialog.error then
-        finish_file_dialog(nil, dialog.error)
+local function forget_session(dialog, scope, app)
+    runner:forget(app.path)
+    refresh_task_apps()
+    dialogs:pop(scope)
+    if dialog.parent and dialogs:top(scope) == dialog.parent then dialogs:pop(scope) end
+end
+
+local function update_app_dialog(dialog, dt)
+    if not dialog.poll then
+        update_file_dialog(dialog, dt)
+        return
+    end
+    local action = dialog:poll(input, dt)
+    if not action then return end
+    if action.forget then
+        forget_session(dialog, "app", action.forget)
     else
-        local ok, done, path, err = pcall(dialog.picker.update, dialog.picker, dt)
-        if not ok then
-            finish_file_dialog(nil, tostring(done))
-        elseif done then
-            if path ~= nil and (type(path) ~= "string" or path:sub(1, 1) ~= "/" or path:find("[%c\\]")) then
-                path, err = nil, "The file picker returned an invalid path"
-            end
-            if err ~= nil then path, err = nil, tostring(err) end
-            finish_file_dialog(path, err)
-        end
+        dialogs:pop("app")
+    end
+    taskbar:reset()
+    input.reset()
+    if action.suspend then
+        notification = nil
+        runner:suspend()
+        runner:update(dt)
     end
 end
 
 local function update_system(dt)
     input.update()
-    if idle.update(dt, runner:active()) and desktop then
-        desktop:reset_contact(true)
+    if idle.update(dt, runner:active()) and launcher_touch then
+        launcher_touch:reset(true)
     end
     status_elapsed = status_elapsed + dt
     local dirty = status_elapsed >= 0.5 and refresh_status()
@@ -273,29 +312,26 @@ local function update_system(dt)
         if not runner:active() then restore_shell() end
         return
     elseif runner:active() then
-        message_age = message_age + dt
-        if message_age >= 4 then message = nil end
-        local switch_to, forget
-        if app_frame then switch_to, forget = taskbar:route(input.touch(), dt) end
+        notification_age = notification_age + dt
+        if notification_age >= 4 then notification = nil end
         local previous = active_app
-        if forget then
-            runner:forget(forget.path)
-            refresh_task_apps()
-        elseif switch_to then
-            message = nil
-            runner:suspend()
-        end
-        local request = pending_file_dialog
-        pending_file_dialog = nil
-        if file_dialog or request then
-            if file_dialog then
-                update_file_dialog(dt, switch_to)
-            elseif switch_to then
-                runner:complete_file_dialog(request.callback)
-            else
-                start_file_dialog(request)
-            end
+        local switch_to
+        local dialog = dialogs:top("app")
+        if dialog then
+            update_app_dialog(dialog, dt)
         else
+            local held_app, held_active
+            if app_frame then switch_to, held_app, held_active = taskbar:route(input.touch(), dt) end
+            if held_app then
+                open_session_confirmation(held_app, held_active and "suspend" or "forget", "app")
+                taskbar:reset()
+                input.reset()
+                return
+            end
+            if switch_to then
+                notification = nil
+                runner:suspend()
+            end
             runner:update(dt)
         end
         if not runner:active() then
@@ -311,57 +347,57 @@ local function update_system(dt)
     end
     input.txt() -- The launcher has no text input; do not accumulate keystrokes.
     local contacts = input.touch()
-    local selected, forget = taskbar:route(contacts, dt)
-    if not chooser and not message then
-        if forget then
-            runner:forget(forget.path)
-            refresh_task_apps()
-            desktop:close_menu()
-            dirty = true
+    local dialog = dialogs:top("launcher")
+    if dialog ~= launcher_dialog then draw_launcher() end
+    if not dialog then
+        local selected, held_app = taskbar:route(contacts, dt)
+        if held_app then
+            open_session_confirmation(held_app, "forget", "launcher")
+            draw_launcher()
+            return
         elseif selected and selected ~= Taskbar.HOME then
             launch_app(selected)
             if not runner:active() then restore_shell(not pending_open) end
             return
         end
     end
-    if chooser and not message then
-        if input.keyp(1, 1) then
-            chooser = nil
-            desktop:reset_contact(#contacts > 0)
-            desktop:draw(chooser, message)
-            return
-        elseif input.keyp(4, 14) then
-            choose_handler(false)
-            return
-        elseif input.keyp(4, 12) or input.keyp(5, 12) then
-            local direction = input.keyp(4, 12) and -1 or 1
-            chooser.selected = math.max(1, math.min(#chooser.candidates, chooser.selected + direction))
-            dirty = true
-        end
+    local action = dialog and dialog.key_action and dialog:key_action(input)
+    if action and action.candidate then
+        dialog.selected = action.candidate
+        action = nil
+        dirty = true
     end
-    local action, touched = desktop:update_touch(taskbar:app_touch(contacts), dt)
+    local touched, held
     if action then
-        if action.app then
+        launcher_touch:reset(#contacts > 0)
+        touched = true
+    else
+        action, touched, held = launcher_touch:update(launcher_surface, taskbar:app_touch(contacts), dt)
+    end
+    if action then
+        if held then
+            local menu = require("lib.dialogs.app_menu").new(action.app, runner, colors)
+            dialogs:push(menu, "launcher")
+        elseif action.app then
             -- Launch on release so the app cannot inherit the launcher tap.
+            if dialog then dialogs:pop("launcher") end
             launch_app(action.app)
             if not runner:active() then restore_shell(not pending_open) end
             return
         elseif action.forget then
-            runner:forget(action.forget.path)
-            refresh_task_apps()
-            desktop:close_menu()
-        elseif action.dismiss then
-            message = nil
+            forget_session(dialog, "launcher", action.forget)
+        elseif action.confirm_forget then
+            open_session_confirmation(dialog.app, "forget", "launcher", dialog)
+        elseif action.cancel_menu or action.dismiss or action.cancel_chooser then
+            dialogs:pop("launcher")
         elseif action.candidate then
-            chooser.selected = action.candidate
-        elseif action.cancel_chooser then
-            chooser = nil
+            dialog.selected = action.candidate
         elseif action.open_choice then
-            choose_handler(action.open_choice == "always")
+            choose_handler(dialog, action.open_choice == "always")
             return
         end
     end
-    if dirty or touched then desktop:draw(chooser, message) end
+    if dirty or touched then draw_launcher() end
 end
 
 -- Keep presentation in the OS, after app drawing and any shell overlays.
@@ -377,24 +413,18 @@ function update(dt)
             gfx.target()
             gfx.spr(app_frame, 0, 0)
         end
-        if file_dialog then
-            local frame = file_dialog.frame
-            if frame then
-                gfx.target()
-                gfx.spr(frame, 0, 0)
-            end
-            local ok, err = pcall(file_dialog.picker.draw, file_dialog.picker)
-            if not ok then file_dialog.error = tostring(err) end
-        end
-        if message then
+        local dialog = dialogs:top("app")
+        local show_dialog = dialog and (not dialog.draw_background or dialog:draw_background())
+        if app_frame then draw_taskbar() end
+        if show_dialog then dialogs:draw("app") end
+        if notification then
             -- Rejection leaves the app alive; show its reason above the app's frame.
             local width = app_frame and app_frame.width or gfx.width
             gfx.rectfill(0, 0, width, 16, colors.panel)
-            gfx.print(4, 4, shortened(message:gsub("[%c]", " "), math.floor((width - 8) / 6)), colors.error)
+            gfx.print(4, 4, shortened(notification:gsub("[%c]", " "), math.floor((width - 8) / 6)), colors.error)
         end
-    end
-    if not runner:active() or app_frame then
-        taskbar:draw(task_apps, runner, colors, active_app, battery)
+    elseif not dialogs:top("launcher") then
+        draw_taskbar()
     end
     gfx.flip()
     collectgarbage("step")

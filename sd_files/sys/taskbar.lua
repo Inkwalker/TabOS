@@ -1,4 +1,4 @@
-local AppIcon = require("app_icon")
+local AppIcon = require("lib.app_icon")
 local Taskbar = {}
 Taskbar.__index = Taskbar
 Taskbar.HOME = {}
@@ -25,9 +25,9 @@ function Taskbar:clear_icons()
     self.icons = {}
 end
 
-function Taskbar:reset()
+function Taskbar:reset(held)
     self.targets, self.pressed = {}, nil
-    self.held, self.owned = true, false
+    self.held, self.owned = held ~= false, false
 end
 
 -- Keep an entire gesture owned by the system once it starts in the bar.
@@ -37,7 +37,7 @@ function Taskbar:route(contacts, dt)
         self.held, self.owned, self.pressed = false, false, nil
         if item and item.next_page then
             self.page = self.page % item.pages + 1
-        elseif item then
+        elseif item and not item.active then
             return item.home and Taskbar.HOME or item.app
         end
         return
@@ -65,7 +65,7 @@ function Taskbar:route(contacts, dt)
             self.press_elapsed = self.press_elapsed + dt
             if self.press_elapsed >= hold_seconds then
                 self.pressed = nil
-                return nil, item.app
+                return nil, item.app, item.active
             end
         end
     end
@@ -124,9 +124,8 @@ function Taskbar:draw(apps, runner, colors, active, battery)
         end
         if is_active then
             gfx.rectfill(300, y, 1, 20, colors.accent)
-        else
-            self.targets[#self.targets + 1] = {y = y, app = app}
         end
+        self.targets[#self.targets + 1] = {y = y, app = app, active = is_active}
     end
     local first = (self.page - 1) * slots + 1
     for index = first, math.min(#running, first + slots - 1) do
