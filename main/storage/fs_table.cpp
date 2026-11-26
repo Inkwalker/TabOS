@@ -2,6 +2,7 @@
 #include <array>
 #include <atomic>
 #include <cerrno>
+#include <charconv>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -12,6 +13,8 @@
 #include <string_view>
 #include <sys/stat.h>
 #include <unistd.h>
+
+#include "lgfx/v1/misc/colortype.hpp"
 
 extern "C" {
 #include "lauxlib.h"
@@ -49,7 +52,7 @@ struct Parser {
     unsigned line = 1;
     unsigned column = 0;
     std::string text;
-    enum { string_token = 256, number_token, name_token };
+    enum { string_token = 256, number_token, hex_token, name_token };
 
     [[noreturn]] void fail(const char* message)
     {
@@ -138,6 +141,15 @@ struct Parser {
             quoted(); token = string_token; return;
         }
         if (!text.empty() || digit(current) || current == '.') {
+            if (current == '0') {
+                advance();
+                if (current == 'x' || current == 'X') {
+                    advance();
+                    while (hex(current) >= 0) { text += static_cast<char>(current); advance(); }
+                    token = hex_token; return;
+                }
+                text += '0';
+            }
             while (digit(current)) { text += static_cast<char>(current); advance(); }
             if (current == '.') {
                 text += '.'; advance();
@@ -162,19 +174,52 @@ struct Parser {
         if (token != expected) fail("unexpected token");
         next();
     }
+    unsigned color_channel()
+    {
+        if (token != number_token) fail("expected an RGB channel integer from 0 to 255");
+        unsigned channel;
+        const char* end = text.data() + text.size();
+        const auto [ptr, error] = std::from_chars(text.data(), end, channel);
+        if (error != std::errc{} || ptr != end || channel > 255)
+            fail("expected an RGB channel integer from 0 to 255");
+        next();
+        return channel;
+    }
+    void rgb_color()
+    {
+        expect('(');
+        const auto red = color_channel();
+        expect(',');
+        const auto green = color_channel();
+        expect(',');
+        const auto blue = color_channel();
+        expect(')');
+        lua_pushinteger(state, lgfx::color565(red, green, blue));
+    }
     void scalar()
     {
+        if (token == name_token && text == "rgb") {
+            next();
+            rgb_color();
+            return;
+        }
         if (token == string_token) lua_pushlstring(state, text.data(), text.size());
         else if (token == number_token) {
             if (lua_stringtonumber(state, text.c_str()) != text.size() + 1) fail("invalid decimal number");
             if (!std::isfinite(lua_tonumber(state, -1))) fail("number is outside Lua's finite range");
+        } else if (token == hex_token) {
+            lua_Integer number;
+            const char* end = text.data() + text.size();
+            const auto [ptr, error] = std::from_chars(text.data(), end, number, 16);
+            if (error == std::errc::result_out_of_range) fail("hexadecimal integer is outside Lua's integer range");
+            if (error != std::errc{} || ptr != end) fail("invalid hexadecimal integer");
+            lua_pushinteger(state, number);
         } else if (token == name_token && (text == "true" || text == "false")) lua_pushboolean(state, text == "true");
-        else fail("expected a string, decimal number, boolean, or table");
+        else fail("expected a string, number, boolean, RGB color, or table");
         next();
     }
     void value(unsigned depth)
     {
-        if (depth > max_depth) fail("table nesting exceeds eight levels");
         luaL_checkstack(state, 5, nullptr);
         if (token != '{') { scalar(); return; }
         next();
@@ -182,13 +227,22 @@ struct Parser {
         const int table = lua_gettop(state);
         lua_Integer sequence = 0;
         while (token != '}') {
+            if (depth == max_depth) fail("table nesting exceeds eight levels");
             if (token == '[') {
                 next(); scalar(); expect(']'); expect('='); value(depth + 1);
             } else if (token == name_token && text != "true" && text != "false") {
                 // Lua keywords cannot be bare field names.
                 if (keyword(text)) fail("reserved word used as a field name");
+                const bool rgb_name = text == "rgb";
                 lua_pushlstring(state, text.data(), text.size());
-                next(); expect('='); value(depth + 1);
+                next();
+                if (rgb_name && token == '(') {
+                    lua_pushinteger(state, ++sequence);
+                    lua_replace(state, -2);
+                    rgb_color();
+                } else {
+                    expect('='); value(depth + 1);
+                }
             } else {
                 lua_pushinteger(state, ++sequence); value(depth + 1);
             }

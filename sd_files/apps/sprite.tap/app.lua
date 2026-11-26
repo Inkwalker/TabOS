@@ -29,8 +29,9 @@ local untitled_name = "Untitled.png"
 local history_tools = {[PenTool.history_id] = PenTool}
 local colors = {}
 for _, name in ipairs({"workspace", "panel", "button", "text", "muted", "accent", "error", "active_color"}) do
-    local rgb = assert(theme[name], "Missing theme color " .. name)
-    colors[name] = gfx.rgb(rgb[1], rgb[2], rgb[3])
+    local color = assert(theme[name], "Missing theme color " .. name)
+    assert(math.type(color) == "integer" and color >= 0 and color <= 0xffff, "Invalid theme color " .. name)
+    colors[name] = color
 end
 
 local menu, new_sprite_dialog, zoom_out_button, zoom_in_button

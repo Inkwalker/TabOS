@@ -19,15 +19,10 @@ local function valid_extension(extension)
     return type(extension) == "string" and extension:match('^%.[^%./\\:*?"<>|%c%s]+$') ~= nil
 end
 
-local function icon_color_key(rgb)
-    if type(rgb) ~= "table" then return end
-    for index = 1, 3 do
-        local value = rgb[index]
-        if type(value) ~= "number" or not math.tointeger(value) or value < 0 or value > 255 then
-            return
-        end
+local function icon_color_key(color)
+    if math.type(color) == "integer" and color >= 0 and color <= 0xffff then
+        return color
     end
-    return {rgb[1], rgb[2], rgb[3]}
 end
 
 local function extensions(declared)

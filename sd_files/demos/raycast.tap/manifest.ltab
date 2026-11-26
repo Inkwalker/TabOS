@@ -1,5 +1,5 @@
 {
     name = "Raycast",
     icon = "icon.png",
-    icon_key = {255, 0, 255},
+    icon_key = rgb(255, 0, 255),
 }

@@ -1,11 +1,11 @@
 {
     -- RGB channels from 0 to 255.
-    workspace = {9, 15, 24},
-    panel = {18, 28, 42},
-    button = {42, 65, 88},
-    text = {235, 242, 250},
-    muted = {160, 178, 200},
-    accent = {108, 205, 255},
-    error = {255, 145, 145},
-    active_color = {255, 255, 255},
+    workspace = rgb(9, 15, 24),
+    panel = rgb(18, 28, 42),
+    button = rgb(42, 65, 88),
+    text = rgb(235, 242, 250),
+    muted = rgb(160, 178, 200),
+    accent = rgb(108, 205, 255),
+    error = rgb(255, 145, 145),
+    active_color = rgb(255, 255, 255),
 }

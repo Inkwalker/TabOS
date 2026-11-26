@@ -38,13 +38,9 @@ local colors = {
     home_sprite_key = gfx.rgb(255, 0, 255),
 }
 
-local function valid_channel(value)
-    return type(value) == "number" and value >= 0 and value <= 255 and value % 1 == 0
-end
-
-for name, rgb in pairs(fs.read_table("/sd/sys/theme.ltab") or {}) do
-    if type(rgb) == "table" and valid_channel(rgb[1]) and valid_channel(rgb[2]) and valid_channel(rgb[3]) then
-        colors[name] = gfx.rgb(rgb[1], rgb[2], rgb[3])
+for name, color in pairs(fs.read_table("/sd/sys/theme.ltab") or {}) do
+    if math.type(color) == "integer" and color >= 0 and color <= 0xffff then
+        colors[name] = color
     end
 end
 

@@ -38,21 +38,25 @@ assert(fs.write_table("/sd/config.ltab", config))
 ```lua
 {
     -- Display settings
-    screen = { brightness = 80, accents = { "blue", "green" } },
+    screen = { brightness = 80, accent = rgb(255, 0, 255) },
     ["key with spaces"] = "value",
 }
 ```
 
 | Supported | Details |
 | --- | --- |
-| Values | Finite decimal numbers (including fractions and exponents), booleans, quoted strings, and nested tables. |
+| Values | Finite decimal numbers (including fractions and exponents), hexadecimal integers, booleans, quoted strings, `rgb(r, g, b)` colors, and nested tables. |
 | Fields | `name = value`, scalar keys such as `[3]` or `[false]`, and list entries. Mixed and sparse tables are allowed. |
 | Separators | Commas or semicolons, including trailing separators. |
 | Comments | `--` line comments. |
 
 Single- and double-quoted strings support Lua short-string escapes: `\a`, `\b`, `\f`, `\n`, `\r`, `\t`, `\v`, `\\`, `\"`, `\'`, decimal byte escapes, `\xHH`, `\u{...}`, escaped newlines, and `\z` whitespace skipping. Strings and string keys may contain arbitrary bytes, including NUL.
 
-Expressions, calls, variables, `nil`, hexadecimal numbers, long-bracket strings, and block comments are unsupported. Duplicate keys, including explicit-key/list-index collisions, are rejected.
+`rgb(r, g, b)` takes three decimal integers from 0 through 255 and returns the same packed RGB565 integer as `gfx.rgb(r, g, b)`. For example, `rgb(255, 0, 255)` becomes `63519`. `fs.write_table` writes the packed integer in decimal.
+
+Hexadecimal integers use a `0x` or `0X` prefix and may start with a minus sign. They must fit in Lua's signed 32-bit integer range. For example, `0xFF00FF` loads as the integer `16711935`. `fs.write_table` writes hexadecimal integers in decimal.
+
+Expressions, function calls, variables, `nil`, hexadecimal fractions and exponents, long-bracket strings, and block comments are unsupported. Duplicate keys, including explicit-key/list-index collisions, are rejected.
 
 Numbers use signed 32-bit integers and 32-bit floats. Out-of-range integers may become floats and lose precision.
 

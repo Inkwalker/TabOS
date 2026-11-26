@@ -10,8 +10,7 @@ function AppIcon.load(path)
     return sprite
 end
 
-function AppIcon.draw(sprite, x, y, rgb)
-    local key = rgb and gfx.rgb(rgb[1], rgb[2], rgb[3])
+function AppIcon.draw(sprite, x, y, key)
     gfx.spr(sprite, x, y, key)
 end
 
