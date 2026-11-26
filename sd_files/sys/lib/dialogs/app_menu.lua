@@ -12,8 +12,11 @@ function AppMenu.new(app, runner, colors)
     local open = root:add(Button.new({x = 8, y = 44, width = 236, height = 22}, "Open", {app = app}, style))
     local forget = root:add(Button.new({x = 8, y = 68, width = 236, height = 22}, "Forget Session...",
         {confirm_forget = true}, style))
-    root:add(Button.new({x = 8, y = 92, width = 236, height = 22}, "Cancel", {cancel_menu = true}, style))
-    return setmetatable({app = app, runner = runner, root = root, status = status, open = open, forget = forget}, AppMenu)
+    local remove = root:add(Button.new({x = 8, y = 92, width = 236, height = 22}, "Remove Shortcut",
+        {remove_shortcut = app}, style))
+    local cancel = root:add(Button.new({x = 8, y = 116, width = 236, height = 22}, "Cancel", {cancel_menu = true}, style))
+    return setmetatable({app = app, runner = runner, root = root, status = status, open = open,
+        forget = forget, remove = remove, cancel = cancel}, AppMenu)
 end
 
 function AppMenu:draw()
@@ -21,6 +24,9 @@ function AppMenu:draw()
     self.status.text = suspended and "Suspended" or "Ready"
     self.open:set_text(suspended and "Resume" or "Open")
     self.forget.visible = suspended
+    self.remove.rect.y = suspended and 92 or 68
+    self.cancel.rect.y = self.remove.rect.y + 24
+    self.root.rect.height = self.cancel.rect.y + 34
     return self.root:draw()
 end
 

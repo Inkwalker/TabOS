@@ -17,13 +17,14 @@ end
 
 function ShortcutView.new(rect, apps, colors)
     local rows = rect.height // cell_size
-    local count = math.min(#apps, (rect.width // cell_size) * rows)
+    local capacity = (rect.width // cell_size) * rows
+    local count = math.min(#apps, capacity)
     local icons = {}
     for index = 1, count do
         icons[index] = AppIcon.load(apps[index].icon_path)
     end
     return setmetatable({
-        rect = rect, apps = apps, colors = colors, rows = rows, count = count,
+        rect = rect, apps = apps, colors = colors, rows = rows, count = count, capacity = capacity,
         icons = icons, icon_backing = gfx.load_sprite("/sd/sys/spr/icon_backing.png"),
     }, ShortcutView)
 end
@@ -65,7 +66,7 @@ function ShortcutView:draw(pressed_app)
         local y = rect.y + rect.height // 2 - 16
         local limit = rect.width // 6
         centered(rect.x, y, rect.width, shortened("No desktop shortcuts", limit), colors.muted)
-        centered(rect.x, y + 14, rect.width, shortened("Add apps to /sd/sys/shortcuts.ltab", limit), colors.muted)
+        centered(rect.x, y + 14, rect.width, shortened("Hold empty space to add a shortcut", limit), colors.muted)
     end
     return targets
 end

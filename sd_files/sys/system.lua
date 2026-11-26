@@ -20,6 +20,7 @@ local opened_apps = {}
 local task_apps = {}
 local pending_open
 local Registry = require("associations")
+local resolve_path = require("paths").resolve_path
 local associations = Registry.new(config.files_app)
 local Taskbar = require("taskbar")
 local taskbar = Taskbar.new()
@@ -108,6 +109,25 @@ local function launcher_entry(app)
         icon_path = app.icon_path, icon_key = app.icon_key}
 end
 
+local function shortcut_entries(paths)
+    local apps = {}
+    local seen = {}
+    for _, path in ipairs(paths) do
+        local app = Registry.bundle(path)
+        local key = app and fs.fat_name_key(app.path)
+        if key and not seen[key] then
+            seen[key] = true
+            apps[#apps + 1] = launcher_entry(app)
+        end
+    end
+    return apps
+end
+
+local function set_shortcuts(apps)
+    taskbar:clear_icons()
+    shortcuts = apps
+end
+
 local function load_shortcuts()
     local paths, err, code = fs.read_table(shortcuts_path)
     if not paths and code ~= 2 then
@@ -116,17 +136,91 @@ local function load_shortcuts()
         if not dialog or dialog.text ~= text then show_error(text) end
         return
     end
-    taskbar:clear_icons()
-    shortcuts = {}
-    local seen = {}
-    for _, path in ipairs(paths or {}) do
-        local app = Registry.bundle(path)
-        local key = app and fs.fat_name_key(app.path)
-        if key and not seen[key] then
-            seen[key] = true
-            shortcuts[#shortcuts + 1] = launcher_entry(app)
+    set_shortcuts(shortcut_entries(paths or {}))
+end
+
+local function shortcut_key(path)
+    if type(path) == "string" and path:sub(1, 1) == "/" and not path:find("[%c\\]") then
+        return fs.fat_name_key(resolve_path(path, "/"))
+    end
+end
+
+local function edit_shortcut(app, adding)
+    local paths, err, code = fs.read_table(shortcuts_path)
+    if not paths and code ~= 2 then
+        show_error(err or ("Cannot read " .. shortcuts_path))
+        return
+    end
+
+    local updated = {}
+    for key, path in pairs(paths or {}) do updated[key] = path end
+    local app_key = fs.fat_name_key(app.path)
+    local found = false
+    for index = #updated, 1, -1 do
+        if shortcut_key(updated[index]) == app_key then
+            found = true
+            if not adding then table.remove(updated, index) end
         end
     end
+    local entries = shortcut_entries(updated)
+    if adding and not found then
+        local candidate = Registry.bundle(app.path)
+        if not candidate then
+            show_error("App is unavailable: " .. app.path)
+            return
+        end
+        if #entries >= desktop.shortcuts.capacity then
+            show_error("Desktop is full. Remove a shortcut first.")
+            return
+        end
+        updated[#updated + 1] = candidate.path
+        entries[#entries + 1] = launcher_entry(candidate)
+    end
+    local warning
+    if adding ~= found then
+        local ok
+        ok, warning = fs.write_table(shortcuts_path, updated)
+        if not ok then
+            show_error(warning or ("Cannot write " .. shortcuts_path))
+            return
+        end
+    end
+
+    if not adding and runner:has_session(app.path) then opened_apps[app_key] = app end
+    dialogs:pop("launcher")
+    if adding then dialogs:pop("launcher") end
+    set_shortcuts(entries)
+    desktop:set_shortcuts(shortcuts)
+    refresh_task_apps()
+    if warning then show_error(warning) end
+end
+
+local function open_shortcut_picker()
+    local installed, err, code = fs.list("/sd/apps")
+    if not installed and code ~= 2 then
+        show_error(err or "Cannot read /sd/apps")
+        return
+    end
+
+    local seen, candidates = {}, {}
+    for _, app in ipairs(shortcuts) do seen[fs.fat_name_key(app.path)] = true end
+    for _, item in ipairs(installed or {}) do
+        if item.type ~= "file" and item.name:sub(-4):lower() == ".tap" then
+            local app = Registry.bundle("/sd/apps/" .. item.name)
+            local key = app and fs.fat_name_key(app.path)
+            if key and not seen[key] then
+                seen[key] = true
+                candidates[#candidates + 1] = app
+            end
+        end
+    end
+    table.sort(candidates, function(a, b)
+        local left, right = a.name:lower(), b.name:lower()
+        if left == right then return a.path < b.path end
+        return left < right
+    end)
+    local picker = require("lib.dialogs.shortcut_picker").new(candidates, colors)
+    dialogs:push(picker, "launcher")
 end
 
 local function shortened(text, limit)
@@ -158,7 +252,8 @@ local function release_desktop()
     package.loaded["lib.shortcut_view"] = nil
     package.loaded["lib.launcher_touch"] = nil
     if not dialogs:top("launcher") then
-        for _, name in ipairs({"app_menu", "session_confirmation", "open_with", "message"}) do
+        for _, name in ipairs({"app_menu", "session_confirmation", "open_with", "message", "desktop_customization",
+            "shortcut_picker"}) do
             package.loaded["lib.dialogs." .. name] = nil
         end
     end
@@ -376,7 +471,12 @@ local function update_system(dt)
     end
     if action then
         if held then
-            local menu = require("lib.dialogs.app_menu").new(action.app, runner, colors)
+            local menu
+            if action.customize_desktop then
+                menu = require("lib.dialogs.desktop_customization").new(colors)
+            else
+                menu = require("lib.dialogs.app_menu").new(action.app, runner, colors)
+            end
             dialogs:push(menu, "launcher")
         elseif action.app then
             -- Launch on release so the app cannot inherit the launcher tap.
@@ -388,6 +488,14 @@ local function update_system(dt)
             forget_session(dialog, "launcher", action.forget)
         elseif action.confirm_forget then
             open_session_confirmation(dialog.app, "forget", "launcher", dialog)
+        elseif action.remove_shortcut then
+            edit_shortcut(action.remove_shortcut, false)
+        elseif action.open_shortcut_picker then
+            open_shortcut_picker()
+        elseif action.add_shortcut then
+            edit_shortcut(action.add_shortcut, true)
+        elseif action.shortcut_page then
+            dialog.page = action.shortcut_page
         elseif action.cancel_menu or action.dismiss or action.cancel_chooser then
             dialogs:pop("launcher")
         elseif action.candidate then

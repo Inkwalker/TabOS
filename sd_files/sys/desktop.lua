@@ -10,8 +10,13 @@ function Desktop.new(apps, config, colors)
     if type(wallpaper_path) == "string" and wallpaper_path ~= "" and not wallpaper_path:find("%z") then
         self.wallpaper = gfx.load_sprite(wallpaper_path)
     end
-    self.shortcuts = ShortcutView.new({x = 0, y = 0, width = desktop_width, height = gfx.height}, apps, colors)
+    self:set_shortcuts(apps)
     return self
+end
+
+function Desktop:set_shortcuts(apps)
+    if self.shortcuts then self.shortcuts:close() end
+    self.shortcuts = ShortcutView.new({x = 0, y = 0, width = desktop_width, height = gfx.height}, apps, self.colors)
 end
 
 function Desktop:close()
@@ -22,7 +27,10 @@ end
 function Desktop:draw(pressed_app)
     gfx.cls(self.colors.background)
     if self.wallpaper then gfx.spr(self.wallpaper, 0, 0) end
-    return self.shortcuts:draw(pressed_app)
+    local targets = self.shortcuts:draw(pressed_app)
+    targets[#targets + 1] = {x = 0, y = 0, width = desktop_width, height = gfx.height,
+        action = {customize_desktop = true}, holdable = true, hold_only = true}
+    return targets
 end
 
 return Desktop
