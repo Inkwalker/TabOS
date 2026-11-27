@@ -1,4 +1,5 @@
 #include "input.hpp"
+#include "usb_mouse.hpp"
 
 #include "esp_timer.h"
 #include "gfx/gfx.hpp"
@@ -23,6 +24,7 @@ constexpr unsigned keyboard_fifo_size = 32;
 constexpr unsigned keyboard_rows = keys::KEY_COUNT / keys::KEY_COL_COUNT;
 std::array<char, 256> pending_text;
 std::size_t pending_text_size = 0;
+MouseState mouse_frame;
 
 void update_keyboard()
 {
@@ -77,7 +79,28 @@ int update(lua_State*)
     if (keyboard) {
         update_keyboard();
     }
+    mouse_frame = poll_mouse();
     return 0;
+}
+
+int mouse(lua_State* state)
+{
+    lua_createtable(state, 0, 7);
+    lua_pushboolean(state, mouse_frame.connected);
+    lua_setfield(state, -2, "connected");
+    lua_pushinteger(state, mouse_frame.dx);
+    lua_setfield(state, -2, "dx");
+    lua_pushinteger(state, mouse_frame.dy);
+    lua_setfield(state, -2, "dy");
+    lua_pushinteger(state, mouse_frame.wheel);
+    lua_setfield(state, -2, "wheel");
+    lua_pushinteger(state, mouse_frame.buttons);
+    lua_setfield(state, -2, "buttons");
+    lua_pushinteger(state, mouse_frame.pressed);
+    lua_setfield(state, -2, "pressed");
+    lua_pushinteger(state, mouse_frame.released);
+    lua_setfield(state, -2, "released");
+    return 1;
 }
 
 int touches(lua_State* state)
@@ -152,6 +175,7 @@ int push_input_table(lua_State* state)
     const luaL_Reg functions[] = {
         {"update", update},
         {"touch", touches},
+        {"mouse", mouse},
         {"key", key_state<&m5::unit::UnitTab5Keyboard::isPressed>},
         {"keyp", key_state<&m5::unit::UnitTab5Keyboard::wasPressed>},
         {"keyr", key_state<&m5::unit::UnitTab5Keyboard::wasReleased>},

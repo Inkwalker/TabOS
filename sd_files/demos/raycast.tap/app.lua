@@ -6,6 +6,8 @@ local FOCAL = H / (2 * 0.66) -- Preserve the original vertical field of view.
 local PLANE = W / (2 * FOCAL)
 local MAX_DISTANCE = 12 -- Camera depth in map cells; also limits DDA traversal.
 local MOVE_RESPONSE = 16 -- Velocity approaches its target with a 1/16 second time constant.
+local MOUSE_YAW = 0.003 -- Radians per device count.
+local FULL_TURN = 2 * math.pi
 local BARREL_SIZE = 0.6
 local NEAR_DEPTH = 0.05
 local SPRITE_KEY = 0xf81f -- Magenta in RGB565.
@@ -15,6 +17,7 @@ local tline, rectfill = gfx.tline, gfx.rectfill
 local sspr, clip = gfx.sspr, gfx.clip
 local print_text, load_sprite = gfx.print, gfx.load_sprite
 local key, keyp = input.key, input.keyp
+local read_mouse = input.mouse
 local cpu_load = sys.cpu_load
 local sort = table.sort
 local map = {
@@ -287,6 +290,12 @@ function update(dt)
     if keyp(3, 5) then -- R
         px, py, angle = 3.5, 3.5, 0
         vx, vy = 0, 0
+    elseif read_mouse then
+        local mouse = read_mouse()
+        if mouse.connected then
+            -- The reports already contain the displacement since the last poll.
+            angle = (angle + mouse.dx * MOUSE_YAW) % FULL_TURN
+        end
     end
     frames, elapsed = frames + 1, elapsed + dt
     if elapsed >= 0.5 then
@@ -314,7 +323,7 @@ function update(dt)
     local response = 1 - exp(-MOVE_RESPONSE * step)
     local speed = forward ~= 0 and strafe ~= 0 and 2 / sqrt(2) or 2
     for _ = 1, steps do
-        angle = (angle + turn * 1.9 * step) % (2 * math.pi)
+        angle = (angle + turn * 1.9 * step) % FULL_TURN
         local dx, dy = cos(angle), sin(angle)
         local target_x = (dx * forward - dy * strafe) * speed
         local target_y = (dy * forward + dx * strafe) * speed

@@ -1,6 +1,7 @@
 idf_component_register(SRCS "main.cpp" "lua/lua_vm.cpp" "lua/lua_memory.cpp" "gfx/gfx.cpp" "gfx/gfx_lua.cpp"
                         "gfx/sprite.cpp" "gfx/commands.cpp"
-                        "system/system_lua.cpp" "input/input_lua.cpp"
+                        "system/system_lua.cpp" "input/input_lua.cpp" "input/usb_mouse.cpp" "input/mouse_report.cpp"
+                        "usb/host.cpp" "usb/hid.cpp"
                         "storage/storage.cpp" "storage/fs_lua.cpp" "storage/fs_table.cpp" "storage/usb_dma.cpp"
                         "storage/crash_report.cpp"
                         "audio/audio.cpp" "audio/audio_lua.cpp" "audio/sound.cpp"

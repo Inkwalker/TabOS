@@ -6,9 +6,13 @@ A small retro FPS renderer demonstrating `gfx.tline`. Copy the entire
 
 - **@/W** or **Up/Down**: walk forward/backward.
 - **Q/E** or **Left/Right**: turn left/right.
+- **USB-A mouse**: move horizontally to turn left or right.
 - **!/#**: strafe left/right.
-- **R**: reset position.
+- **R**: reset position and view.
 - **Esc**: exit.
+
+Mouse look uses firmware with `input.mouse()`. Adjust `MOUSE_YAW` near the top of
+`app.lua` to tune sensitivity.
 
 The enclosed maze uses grid DDA raycasting and one vertical textured line per
 viewport column. Perpendicular camera depth keeps walls straight. Horizontal

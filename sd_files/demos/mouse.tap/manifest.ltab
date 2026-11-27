@@ -1,0 +1,6 @@
+{
+    name = "Mouse Pointer",
+    icon = "icon.png",
+    icon_key = rgb(255, 0, 255),
+    window = true,
+}

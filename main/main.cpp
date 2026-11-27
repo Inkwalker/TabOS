@@ -9,6 +9,7 @@
 #include "storage/fs_lua.hpp"
 #include "storage/storage.hpp"
 #include "system/system.hpp"
+#include "usb/host.hpp"
 
 extern "C" void app_main()
 {
@@ -27,6 +28,10 @@ extern "C" void app_main()
     }
 
     tabos::storage::init();
+
+    if (const auto status = tabos::usb::start(); status != ESP_OK) {
+        ESP_LOGW("tabos", "Could not start USB-A host: %s", esp_err_to_name(status));
+    }
 
     if (!tabos::system::init()) {
         ESP_LOGW("tabos", "Could not initialize keyboard LED custom mode");
