@@ -24,6 +24,21 @@ function Sprite:save(path) end
 ---Release sprite memory. Calling close more than once is safe.
 function Sprite:close() end
 
+---A proportional 1-bit font used by gfx.print.
+---@class gfx.Font
+
+---Numeric rows are read top to bottom, with the highest bit within width at the left.
+---@class gfx.Glyph
+---@field width? integer Bitmap width (1–31), or omitted or zero for a blank glyph.
+---@field advance integer Horizontal cursor advance (0–255).
+---@field x_offset? integer Bitmap left edge relative to the cursor (-128–127), defaults to 0.
+---@field y_offset? integer Bitmap top edge relative to the baseline (-128–127), defaults to minus the row count.
+---@field rows integer[] Up to 255 rows, with each integer fitting the bitmap width. Empty for a blank glyph.
+
+---@class gfx.FontData
+---@field line_height integer Newline advance in pixels (1–255).
+---@field glyphs table<string, gfx.Glyph> Glyphs keyed by one UTF-8 character in the Basic Multilingual Plane.
+
 ---TabOS drawing API. The canvas origin is the top-left corner (0, 0).
 ---Coordinates are integers from -32768 to 32767; colors are RGB565 (0–65535).
 ---Optional drawing colors default to the current color (initially white).
@@ -208,12 +223,23 @@ function gfx.tline(spr, x0, y0, x1, y1, sx, sy, sdx, sdy) end
 ---@param v3 number Finite sprite Y for the third vertex.
 function gfx.ttri(spr, x1, y1, x2, y2, x3, y3, u1, v1, u2, v2, u3, v3) end
 
----Draw text starting at (x, y), with automatic wrapping disabled.
+---Draw text in the active font starting at (x, y), with automatic wrapping disabled.
 ---@param x integer Coordinate from -32768 to 32767.
 ---@param y integer Coordinate from -32768 to 32767.
 ---@param text string
 ---@param color? integer RGB565 color; defaults to the current drawing color.
 function gfx.print(x, y, text, color) end
+
+---Create a proportional 1-bit font from a table, including data read by fs.read_table.
+---@param data gfx.FontData
+---@return gfx.Font? font
+---@return string? error Validation or allocation failure message.
+function gfx.create_font(data) end
+
+---Select the active font for subsequent text commands. Nil restores Font0.
+---Selection persists across flip and target changes.
+---@param font? gfx.Font
+function gfx.set_font(font) end
 
 ---Load a PNG at its native dimensions (each from 1 to 32767).
 ---PNG transparency is flattened against black; sprites do not retain alpha.

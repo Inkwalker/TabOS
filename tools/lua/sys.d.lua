@@ -32,13 +32,15 @@ function sys.psram() end
 ---@return number? core1 Core 1 utilization (0–100); absent on single-core builds.
 function sys.cpu_load() end
 
----Return the battery percentage, or nil if unavailable.
----@return integer? percent
-function sys.bat_lvl() end
+---@class BatteryStatus
+---@field percent number? Charge level (0.0–1.0), or nil if unavailable.
+---@field charging boolean? Whether the battery is charging, or nil if unknown.
+---@field current integer Signed milliamps (positive charging, negative discharging).
+---@field voltage integer Battery bus voltage in millivolts.
 
----Return whether the battery is charging, or nil if its status is unknown.
----@return boolean? charging
-function sys.bat_chrg() end
+---Return the current battery status.
+---@return BatteryStatus status
+function sys.bat() end
 
 ---Request device power-off.
 function sys.shutdown() end
