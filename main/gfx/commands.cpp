@@ -80,6 +80,12 @@ void draw_commands(void*)
         case DrawOp::textured_triangle:
             draw_textured_triangle(*command.sprite, a, command.payload.uv);
             break;
+        case DrawOp::set_font:
+            target.setFont(command.payload.font ? static_cast<const lgfx::IFont*>(command.payload.font) : &fonts::Font0);
+            break;
+        case DrawOp::release_font:
+            if (target.getFont() == command.payload.font) target.setFont(&fonts::Font0);
+            break;
         case DrawOp::text:
             target.setTextColor(command.color);
             target.setCursor(a[0], a[1]);

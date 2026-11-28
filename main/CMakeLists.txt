@@ -1,5 +1,5 @@
 idf_component_register(SRCS "main.cpp" "lua/lua_vm.cpp" "lua/lua_memory.cpp" "gfx/gfx.cpp" "gfx/gfx_lua.cpp"
-                        "gfx/sprite.cpp" "gfx/commands.cpp"
+                        "gfx/font_lua.cpp" "gfx/sprite.cpp" "gfx/commands.cpp"
                         "system/system_lua.cpp" "input/input_lua.cpp" "input/usb_mouse.cpp" "input/mouse_report.cpp"
                         "usb/host.cpp" "usb/hid.cpp"
                         "storage/storage.cpp" "storage/fs_lua.cpp" "storage/fs_table.cpp" "storage/usb_dma.cpp"
@@ -30,6 +30,6 @@ set_source_files_properties(gfx/gfx.cpp gfx/commands.cpp PROPERTIES COMPILE_OPTI
 set_source_files_properties(storage/fs_table.cpp PROPERTIES COMPILE_OPTIONS "-Os")
 
 # The VM wrapper and native Lua bindings are hot paths even in debug builds.
-set_property(SOURCE lua/lua_vm.cpp lua/lua_memory.cpp gfx/gfx_lua.cpp system/system_lua.cpp
+set_property(SOURCE lua/lua_vm.cpp lua/lua_memory.cpp gfx/gfx_lua.cpp gfx/font_lua.cpp system/system_lua.cpp
                     input/input_lua.cpp storage/fs_lua.cpp audio/audio_lua.cpp
              APPEND PROPERTY COMPILE_OPTIONS "-O2")

@@ -31,7 +31,9 @@ The Lua shell calls `gfx.flip()` at the end of each update, after app and shell 
 | `gfx.tri(x1, y1, x2, y2, x3, y3 [, color])` | **Experimental.** Draw a filled triangle. Vertices can be in either winding order. Collinear or coincident vertices draw nothing. |
 | `gfx.tline(spr, x0, y0, x1, y1, sx, sy, sdx, sdy)` | Draw a textured line including both endpoints, starting with sprite position `(sx, sy)` and advancing it by `(sdx, sdy)` per line pixel. |
 | `gfx.ttri(spr, x1, y1, x2, y2, x3, y3, u1, v1, u2, v2, u3, v3)` | **Experimental.** Draw a textured triangle. Each `(u, v)` pair maps to the corresponding `(x, y)` vertex. |
-| `gfx.print(x, y, text [, color])` | Draw a string starting at `(x, y)` with automatic wrapping disabled. |
+| `gfx.print(x, y, text [, color])` | Draw a string in the active font starting at `(x, y)` with automatic wrapping disabled. |
+| `gfx.create_font(data)` | Create a proportional 1-bit font from a font table. Return font userdata, or `nil, error` if the data is invalid or allocation fails. |
+| `gfx.set_font([font])` | Select a font for subsequent text commands. Omit the argument or pass `nil` to restore `Font0`, the default system font. |
 | `gfx.load_sprite(path)` | Load a PNG at its native dimensions. Return a sprite object, or `nil, error` on failure. |
 | `gfx.create_sprite(width, height)` | Allocate a black RGB565 sprite in PSRAM. Dimensions must be in 1–32767. Return a sprite object, or `nil, error` on allocation failure. |
 | `gfx.spr(sprite, x, y [, transparent [, flip_x [, flip_y]]])` | Draw a sprite with its top-left at `(x, y)`. Optional `transparent` skips an RGB565 color. Mirror flags default to `false`. |
@@ -56,6 +58,33 @@ In `ttri`, UVs are finite numbers in sprite pixels measured from the top-left co
 `tri` and `ttri` use single-precision interpolation. Rounding can affect pixels near triangle edges and, in `ttri`, near texel boundaries.
 
 Sprites are released by garbage collection, VM shutdown, `sprite:close()`, or a Lua `<close>` local. Using a closed sprite raises an error, except for repeated `close()` calls.
+
+Save a font as a data-only `.ltab` file and pass the result of `fs.read_table()` to `gfx.create_font()`. Use one UTF-8 character in the Basic Multilingual Plane as each glyph key. Characters can be listed in any order, with gaps between code points.
+
+`line_height` is the newline advance in pixels (1–255). Each glyph has an `advance` from 0 to 255 and a `rows` array with at most 255 entries, ordered top to bottom. Set `width` to 1–31 for a visible glyph. Each row is a nonnegative integer, in decimal or hex, whose low `width` bits represent that row. Within those bits, the highest bit is the leftmost pixel. The width preserves leading zero pixels. A space can use `rows = {}` and omit `width`.
+
+`x_offset` and `y_offset` place the bitmap relative to the cursor's x position and the baseline. Both are integers from −128 to 127. `x_offset` defaults to zero and `y_offset` defaults to minus the row count. For example, save this as `tiny.ltab`.
+
+```lua
+{
+    line_height = 4,
+    glyphs = {
+        ["A"] = { width = 3, advance = 4, rows = { 0x2, 0x5, 0x7 } },
+        ["Ą"] = { width = 3, advance = 4, y_offset = -3, rows = { 0x2, 0x5, 0x7, 0x1 } },
+        [" "] = { advance = 2, rows = {} },
+    },
+}
+```
+
+```lua
+local data = assert(fs.read_table("/sd/tiny.ltab"))
+local font = assert(gfx.create_font(data))
+gfx.set_font(font)
+gfx.print(10, 10, "A Ą")
+gfx.set_font()
+```
+
+Font selection follows command order and persists across `flip()` and `target()`. The selected font stays alive until replaced or reset. Lua collects unused font userdata after queued draws finish.
 
 All temporary canvases reuse one dedicated 128 KiB SRAM pixel buffer. Selecting a target always clears its pixels, even when its dimensions match the previous target. Drawing color remains global. Sprites and the two fixed 320 × 180 presentation mailboxes live in PSRAM. Each flip copies the visible canvas pixels and fills the remaining mailbox pixels with black. All canvas sizes use the existing 4× DMA presentation path, with CPU fallback if DMA is unavailable. Saving to a sprite leaves the displayed image unchanged.
 

@@ -8,6 +8,7 @@
 
 #include "gfx.hpp"
 #include "commands.hpp"
+#include "font_lua.hpp"
 #include "sprite.hpp"
 
 extern "C" {
@@ -543,6 +544,7 @@ int presenter_fps(lua_State* state)
 int push_gfx_table(lua_State* state)
 {
     canvas(state);
+    register_font_type(state);
     if (luaL_newmetatable(state, sprite_type)) {
         lua_pushcfunction(state, release_sprite);
         lua_setfield(state, -2, "__gc");
@@ -555,6 +557,8 @@ int push_gfx_table(lua_State* state)
     }
     lua_pop(state, 1);
     const luaL_Reg functions[] = {
+        {"create_font", create_font},
+        {"set_font", set_font},
         {"load_sprite", load_sprite},
         {"create_sprite", create_sprite},
         {"target", select_target},

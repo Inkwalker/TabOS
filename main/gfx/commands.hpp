@@ -7,13 +7,13 @@ namespace gfx {
 enum class DrawOp {
     barrier, flip, target, save, pget, clip, reset_clip, clear, set_fill_pattern,
     pixel, circle, fill_circle, ellipse, fill_ellipse, rect, fill_rect, line, fill_triangle,
-    sprite, sprite_region, textured_line, textured_triangle, text, text_continue,
+    sprite, sprite_region, textured_line, textured_triangle, set_font, release_font, text, text_continue,
 };
 
 struct CommandCompletion;
 
-// Value-only queue entries, except sprite storage which is protected by
-// wait_commands() before Lua releases it. Text bytes are owned by the queue.
+// Lua keeps sprite and font storage alive until the renderer has finished using it.
+// Text bytes are owned by the queue.
 struct DrawCommand {
     DrawOp op;
     int args[8]{};
@@ -26,6 +26,7 @@ struct DrawCommand {
     union Payload {
         float uv[6]{};
         char text[64];
+        const lgfx::GFXfont* font;
     } payload{};
 };
 
