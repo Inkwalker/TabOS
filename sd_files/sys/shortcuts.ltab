@@ -2,6 +2,7 @@
     "/sd/apps/files.tap",
     "/sd/apps/code.tap",
     "/sd/apps/sprite.tap",
+    "/sd/apps/font.tap",
     "/sd/apps/clock.tap",
     "/sd/apps/bricks.tap",
 }

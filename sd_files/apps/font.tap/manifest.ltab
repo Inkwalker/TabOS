@@ -1,0 +1,5 @@
+{
+    name = "Font",
+    window = true,
+    file_extensions = {".ltab"},
+}
